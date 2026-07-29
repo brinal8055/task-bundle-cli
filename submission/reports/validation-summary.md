@@ -38,3 +38,17 @@ OpenLibrary official-image selector check:
 
 OpenLibrary Task Bundle validation was not run because init correctly stopped
 at the two source Gitlinks. See `openlibrary-blocker.md`.
+
+Selected supported Ansible task:
+
+- init command: `cmd_ead91f81c1534e468029b0c977327422`
+- validation command: `cmd_95994ac450a94272bf1d163c09ede125`
+- validation identity: `val_44a4f3d3180ec8101c04d572ef9d8e10`
+- bundle digest:
+  `sha256:5e70d5e6c559d9c2267ec13b2d8ba04b6944012792dda3e5b58c8d8fd2a426bd`
+- source tree SHA: `64a85753dada2a0a05dcf13093dabbdae13cc7de`
+- image ID:
+  `sha256:1588d122d2722c2586e41b7abc2c4c0f4cb7e046ddb90a7c886f1c1ddf2bba08`
+- baseline: P2P 1/1 passed; F2P 1/1 failed as configured
+- golden: P2P 1/1 passed; F2P 1/1 passed
+- cleanup: complete, no retained evaluator containers

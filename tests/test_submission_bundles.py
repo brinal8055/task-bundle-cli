@@ -30,6 +30,31 @@ def test_openlibrary_bundle_preserves_immutable_record_fields() -> None:
     ) == "sha256:94dfb2ada929e197ddd66059b67b1feacad88103fd99acb7797eb1e3f6c42f3e"
 
 
+def test_selected_real_bundle_preserves_immutable_record_fields() -> None:
+    bundle = load_bundle(ROOT / "bundles/swebench-pro-ansible-d9f186")
+    provenance = bundle.task.provenance
+
+    assert bundle.task.repository.commit == "59ca05b70994b07a9507f61a0871146a4991b262"
+    assert provenance is not None
+    assert provenance.dataset_revision == "7ab5114912baf22bb098818e604c02fe7ad2c11f"
+    assert (
+        provenance.instance_id
+        == "instance_ansible__ansible-"
+        "d9f1866249756efc264b00ff7497e92c11a9885f-"
+        "v0f01c69f1e2528b935359cfe578530722bca2c59"
+    )
+    assert provenance.source_record_sha256 == (
+        "sha256:d9ac34c26a511a63954f1dd21f9cfea6eea56b8a96437fee2d9ab47aded9d994"
+    )
+    assert sha256_digest(
+        (bundle.root / bundle.task.evaluation.test_patch).read_bytes()
+    ) == "sha256:ef22b72858cfa7b69f0c860fbf87fe296e7d7b1516d6c30a59e3b328e345a832"
+    assert sha256_digest(
+        (bundle.root / bundle.task.evaluation.golden_patch).read_bytes()
+    ) == "sha256:085236f733a15425970deb71e82f48a39d8c959fd2bd47ea79adc5b1c16a8374"
+    assert "ENTRYPOINT []" in (bundle.root / "environment/Dockerfile").read_text()
+
+
 def test_submission_example_is_loadable_without_generated_state() -> None:
     root = ROOT / "submission/example-bundle"
     bundle = load_bundle(root)

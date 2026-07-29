@@ -120,6 +120,7 @@ def build_filesystem_manifest(
             )
 
     walk(root)
+    entries.sort(key=lambda entry: entry.path)
     document = {
         "schema_version": "1",
         "entries": [entry.model_dump(mode="json") for entry in entries],

@@ -1,0 +1,19 @@
+{
+  "schema_version": "1",
+  "report_type": "portable-real-task-init",
+  "command_id": "cmd_ead91f81c1534e468029b0c977327422",
+  "task_id": "swebench-pro-ansible-d9f186",
+  "exit_code": 0,
+  "outcome": "initialized",
+  "artifact_root": "artifacts/swebench-pro-ansible-d9f186/cmd_ead91f81c1534e468029b0c977327422",
+  "bundle_input_digest": "sha256:5e70d5e6c559d9c2267ec13b2d8ba04b6944012792dda3e5b58c8d8fd2a426bd",
+  "source_tree_digest": "sha256:f62bdb82d61c9462f8145de1b644d2380cf65609addf4d0c8831b288ec079b0f",
+  "source_tree_sha": "64a85753dada2a0a05dcf13093dabbdae13cc7de",
+  "source_entry_count": 5084,
+  "source_total_bytes": 13481165,
+  "gitlink_count": 0,
+  "image_reference": "task-bundle/swebench-pro-ansible-d9f186:5e70d5e6c559d9c2-linux-amd64",
+  "image_id": "sha256:1588d122d2722c2586e41b7abc2c4c0f4cb7e046ddb90a7c886f1c1ddf2bba08",
+  "platform": "linux/amd64",
+  "smoke_check": "passed"
+}

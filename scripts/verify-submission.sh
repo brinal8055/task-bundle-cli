@@ -1,16 +1,27 @@
 #!/bin/sh
 set -eu
 
+run_real=0
+if [ "${1-}" = "--real" ]; then
+  run_real=1
+  shift
+fi
+if [ "$#" -ne 0 ]; then
+  echo "usage: scripts/verify-submission.sh [--real]" >&2
+  exit 2
+fi
+
 verify_root=$(mktemp -d)
 trap 'rm -rf "$verify_root"' EXIT HUP INT TERM
 export UV_CACHE_DIR="$verify_root/uv-cache"
 
 uv sync --frozen --extra dev
 uv run ruff check .
-uv run mypy
+uv run mypy src tests
 uv run pytest -q
 uv build
 uv run python scripts/verify-security.py
+uv run python scripts/verify-portable-reports.py
 git diff --check
 
 python3.12 -m venv "$verify_root/venv"
@@ -22,6 +33,15 @@ python3.12 -m venv "$verify_root/venv"
 "$verify_root/venv/bin/task" validate --help >/dev/null
 "$verify_root/venv/bin/task" run --help >/dev/null
 "$verify_root/venv/bin/task" show --help >/dev/null
+
+if [ "$run_real" -eq 1 ]; then
+  TASK_BUNDLE_RUN_REAL_DOCKER=1 \
+  TASK_BUNDLE_REAL_DOCKER_GO_BASE="${TASK_BUNDLE_REAL_DOCKER_GO_BASE:-golang@sha256:3d699e4d15d0f8f13c9195c0632a16702b8cbdece2955af1c23b37ae5d55a253}" \
+  TASK_BUNDLE_REAL_DOCKER_PLATFORM="${TASK_BUNDLE_REAL_DOCKER_PLATFORM:-linux/amd64}" \
+    uv run python scripts/verify-security.py
+  "$verify_root/venv/bin/python" scripts/verify-submission-real.py \
+    "$verify_root/venv/bin/task"
+fi
 
 if find bundles submission/example-bundle \
   \( -name .task -o -name artifacts -o -name '*.db' -o -name __pycache__ \) \

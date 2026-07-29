@@ -1,0 +1,50 @@
+{
+  "schema_version": "1",
+  "report_type": "portable-real-task-validation",
+  "command_id": "cmd_95994ac450a94272bf1d163c09ede125",
+  "task_id": "swebench-pro-ansible-d9f186",
+  "exit_code": 0,
+  "outcome": "valid",
+  "artifact_root": "artifacts/swebench-pro-ansible-d9f186/cmd_95994ac450a94272bf1d163c09ede125",
+  "validation_id": "val_44a4f3d3180ec8101c04d572ef9d8e10",
+  "bundle_input_digest": "sha256:5e70d5e6c559d9c2267ec13b2d8ba04b6944012792dda3e5b58c8d8fd2a426bd",
+  "image_id": "sha256:1588d122d2722c2586e41b7abc2c4c0f4cb7e046ddb90a7c886f1c1ddf2bba08",
+  "runtime_policy_digest": "sha256:bf3861e04aed921da8595021592f2eb14ee0c838923f51188fb007cd7be164e5",
+  "harness_digest": "sha256:54b2df1fcd4c033ed01d07992e9f6626b8ab6a41a971b9a0b624b37f050b94d9",
+  "selector_digest": "sha256:cd5d7d5d6f6d8899ac23a613dc5c9b5ac825af8323ea351afc40c2b082882365",
+  "test_patch_sha256": "sha256:ef22b72858cfa7b69f0c860fbf87fe296e7d7b1516d6c30a59e3b328e345a832",
+  "golden_patch_sha256": "sha256:085236f733a15425970deb71e82f48a39d8c959fd2bd47ea79adc5b1c16a8374",
+  "phases": {
+    "baseline": {
+      "outcome": "accepted",
+      "pass_to_pass": [
+        {
+          "selector": "test/units/module_utils/common/validation/test_check_type_dict.py::test_check_type_dict",
+          "status": "passed"
+        }
+      ],
+      "fail_to_pass": [
+        {
+          "selector": "test/units/module_utils/common/validation/test_check_type_dict.py::test_check_type_dict_fail",
+          "status": "failed"
+        }
+      ]
+    },
+    "golden": {
+      "outcome": "accepted",
+      "pass_to_pass": [
+        {
+          "selector": "test/units/module_utils/common/validation/test_check_type_dict.py::test_check_type_dict",
+          "status": "passed"
+        }
+      ],
+      "fail_to_pass": [
+        {
+          "selector": "test/units/module_utils/common/validation/test_check_type_dict.py::test_check_type_dict_fail",
+          "status": "passed"
+        }
+      ]
+    }
+  },
+  "cleanup_complete": true
+}

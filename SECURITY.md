@@ -46,7 +46,10 @@ Run:
 scripts/verify-submission.sh
 python scripts/verify-security.py
 TASK_BUNDLE_RUN_REAL_DOCKER=1 python scripts/verify-security.py
+scripts/verify-submission.sh --real
 ```
 
-The final command requires a working local Docker daemon and the configured
-digest-pinned test base.
+The last two commands require a working local Docker daemon and configured
+digest-pinned bases. `--real` additionally runs the supported Ansible
+init/validate/no-op/resolved lifecycle and treats the no-op exit `1` as the
+expected unresolved result.

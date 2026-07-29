@@ -22,6 +22,7 @@ def main() -> int:
         "tests/test_run_filesystem.py",
         "tests/test_run_candidate.py",
         "tests/test_run_service.py",
+        "tests/test_submission_bundles.py",
     ]
     run(sys.executable, "-m", "pytest", "-q", *selected)
     if os.environ.get("TASK_BUNDLE_RUN_REAL_DOCKER") == "1":

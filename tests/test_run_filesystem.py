@@ -49,6 +49,17 @@ def test_workspace_manifest_is_binary_safe_deterministic_and_host_independent(
     assert first_manifest.entries[0].path == "bin/tool"
 
 
+def test_workspace_manifest_sorts_nested_paths_globally(tmp_path: Path) -> None:
+    root = tmp_path / "nested"
+    (root / "a").mkdir(parents=True)
+    (root / "a/file").write_text("nested\n")
+    (root / "a.txt").write_text("sibling\n")
+
+    manifest = _manifest(root)
+
+    assert [entry.path for entry in manifest.entries] == ["a.txt", "a/file"]
+
+
 @pytest.mark.parametrize("kind", ["unsafe-symlink", "git", "fifo", "hardlink"])
 def test_workspace_manifest_rejects_unsafe_entries(
     tmp_path: Path,

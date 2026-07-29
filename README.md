@@ -31,6 +31,29 @@ and [end-to-end demo](DEMO.md).
 - Phase 5 — Solver and candidate evaluation (complete)
 - Phase 6 — Security verification and real benchmark (complete)
 
+## Real benchmark demonstration
+
+The primary supported SWE-bench Pro demonstration is the immutable Ansible
+bundle:
+
+```bash
+uv run task init bundles/swebench-pro-ansible-d9f186
+uv run task validate bundles/swebench-pro-ansible-d9f186
+uv run task run bundles/swebench-pro-ansible-d9f186 --solver noop
+
+cp bundles/swebench-pro-ansible-d9f186/evaluation/hidden/golden.patch \
+  /tmp/ansible-d9f186-candidate.patch
+uv run task run bundles/swebench-pro-ansible-d9f186 \
+  --solver patch \
+  --patch /tmp/ansible-d9f186-candidate.patch
+uv run task show <command-id> --events --tests
+```
+
+Expected exits are `0`, `0`, `1`, and `0`. Exit `1` is the expected completed
+unresolved no-op result. The OpenLibrary import remains separate, honest
+evidence that exact source trees containing Gitlinks are rejected; it is not
+the successful demo.
+
 ## Development
 
 Requires Python 3.12 and [`uv`](https://docs.astral.sh/uv/).

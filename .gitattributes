@@ -1,3 +1,4 @@
 bundles/swebench-pro-openlibrary/evaluation/hidden/golden.patch whitespace=-blank-at-eol,-blank-at-eof
 bundles/swebench-pro-openlibrary/public/description.md whitespace=-blank-at-eol
 bundles/swebench-pro-openlibrary/public/requirements.md whitespace=-blank-at-eol
+bundles/swebench-pro-ansible-d9f186/evaluation/hidden/golden.patch whitespace=-blank-at-eol,-blank-at-eof

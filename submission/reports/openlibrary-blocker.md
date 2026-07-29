@@ -20,3 +20,15 @@ expansion and document “no submodules” as a final limitation.
 The exact task semantics were still checked independently in the official
 digest-pinned SWE-bench Pro image: baseline P2P passed/F2P failed, and golden
 P2P/F2P both passed.
+
+Final classification:
+
+```text
+IMPORTED
+PROVENANCE VERIFIED
+OFFICIAL IMAGE SEMANTICS VERIFIED
+CLI EXECUTION BLOCKED BY UNSUPPORTED GITLINKS
+```
+
+The successful real CLI demonstration is the separate supported Ansible
+bundle. OpenLibrary is retained only as honest source-policy boundary evidence.

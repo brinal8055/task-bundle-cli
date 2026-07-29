@@ -1,0 +1,32 @@
+{
+  "schema_version": "1",
+  "report_type": "portable-real-task-run",
+  "command_id": "cmd_5a11053ab6644e41a84da0befa433325",
+  "task_id": "swebench-pro-ansible-d9f186",
+  "solver": "noop",
+  "exit_code": 1,
+  "command_status": "succeeded",
+  "evaluation_status": "unresolved",
+  "resolved": false,
+  "artifact_root": "artifacts/swebench-pro-ansible-d9f186/cmd_5a11053ab6644e41a84da0befa433325",
+  "bundle_input_digest": "sha256:5e70d5e6c559d9c2267ec13b2d8ba04b6944012792dda3e5b58c8d8fd2a426bd",
+  "image_id": "sha256:1588d122d2722c2586e41b7abc2c4c0f4cb7e046ddb90a7c886f1c1ddf2bba08",
+  "validation_id": "val_44a4f3d3180ec8101c04d572ef9d8e10",
+  "baseline_tree_sha": "64a85753dada2a0a05dcf13093dabbdae13cc7de",
+  "candidate_tree_sha": "64a85753dada2a0a05dcf13093dabbdae13cc7de",
+  "candidate_patch_sha256": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "patch_policy_status": "accepted",
+  "selector_results": [
+    {
+      "group": "pass_to_pass",
+      "selector": "test/units/module_utils/common/validation/test_check_type_dict.py::test_check_type_dict",
+      "status": "passed"
+    },
+    {
+      "group": "fail_to_pass",
+      "selector": "test/units/module_utils/common/validation/test_check_type_dict.py::test_check_type_dict_fail",
+      "status": "failed"
+    }
+  ],
+  "cleanup_complete": true
+}

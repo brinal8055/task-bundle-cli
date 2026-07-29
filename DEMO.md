@@ -31,34 +31,43 @@ Expected outcomes are, in order: init succeeds; baseline/golden validation
 succeeds; no-op is `UNRESOLVED` and exits `1`; golden patch is `RESOLVED` and
 exits `0`; the isolation command solver is `RESOLVED` and exits `0`.
 
-## Real SWE-bench Pro OpenLibrary task
+## Real SWE-bench Pro Ansible task
 
-The faithful import currently demonstrates the product's intentional
-submodule boundary: the exact commit contains two Gitlinks, so `task init`
-returns `SOURCE_SUBMODULE_UNSUPPORTED`. The remaining commands below are the
-intended flow once submodule support is separately designed; they are not
-claimed as successful Phase 6 evidence.
+The primary real demonstration uses frozen dataset row `407`, whose exact
+Ansible commit contains no Gitlinks. The official image is digest-pinned and
+provides dependencies only; the CLI still imports the public source itself.
 
 ```bash
-uv run task init bundles/swebench-pro-openlibrary
-uv run task validate bundles/swebench-pro-openlibrary
-uv run task run bundles/swebench-pro-openlibrary --solver noop
+uv run task init bundles/swebench-pro-ansible-d9f186
+uv run task validate bundles/swebench-pro-ansible-d9f186
+uv run task run bundles/swebench-pro-ansible-d9f186 --solver noop
 
-cp bundles/swebench-pro-openlibrary/evaluation/hidden/golden.patch \
-  /tmp/openlibrary-candidate.patch
-uv run task run bundles/swebench-pro-openlibrary \
+cp bundles/swebench-pro-ansible-d9f186/evaluation/hidden/golden.patch \
+  /tmp/ansible-d9f186-candidate.patch
+uv run task run bundles/swebench-pro-ansible-d9f186 \
   --solver patch \
-  --patch /tmp/openlibrary-candidate.patch
+  --patch /tmp/ansible-d9f186-candidate.patch
+uv run task show <command-id> --events --tests
 ```
 
-After a future, explicitly reviewed submodule phase, the no-op must complete as
-unresolved with exit `1`. The trusted copy of the
-upstream golden patch must traverse the ordinary patch-solver/export/raw-tree/
-round-trip/policy/fresh-evaluator pipeline and resolve with exit `0`.
+Expected exits are init `0`, validate `0`, no-op `1`, and resolved patch `0`.
+The no-op is a successfully evaluated unresolved command. The trusted copy of
+the upstream golden patch traverses the ordinary patch-solver, non-root
+workspace, export, raw-tree construction, binary-patch regeneration, exact
+round-trip, policy, hidden-conflict, and fresh-evaluator pipeline.
 
 The bundle targets `linux/amd64`. Apple Silicon Docker Desktop may use
-emulation and the OpenLibrary image is intentionally much larger than the fast
-example.
+emulation; full Ansible tree export makes each candidate run slower than the
+small example.
+
+## Preserved OpenLibrary blocker
+
+`bundles/swebench-pro-openlibrary` remains the faithful prior import. Its exact
+base tree is recorded as containing `vendor/infogami` and `vendor/js/wmd`
+Gitlinks, so `task init` exits `3` with
+`SOURCE_SUBMODULE_UNSUPPORTED`. Its provenance and official-image selector
+semantics remain verified, but it is not represented as the successful real
+CLI demonstration and no submodule support was added.
 
 ## Evidence and cleanup
 

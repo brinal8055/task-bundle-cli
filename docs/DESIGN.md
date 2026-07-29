@@ -83,6 +83,28 @@ records. Handled commands never remain `running`.
 normalized, command-root-contained paths, rejects absolute/traversing/symlink
 paths, and marks missing files without a traceback.
 
+## Real benchmark materialization
+
+The supported real demonstration is
+`bundles/swebench-pro-ansible-d9f186`, frozen to SWE-bench Pro revision
+`7ab5114912baf22bb098818e604c02fe7ad2c11f`, dataset row `407`, commit
+`59ca05b70994b07a9507f61a0871146a4991b262`, and tree
+`64a85753dada2a0a05dcf13093dabbdae13cc7de`. That tree has no Gitlinks.
+
+The repository-specific bundle resets the official image's interactive
+entrypoint and sets `PYTHONPATH=/workspace/repo/lib` only for its task-owned
+prepare/test processes. This prevents the image's editable `/app` Ansible
+installation from shadowing the CLI-materialized candidate. The CLI core
+contains no Ansible or pytest behavior.
+
+Ansible's 5,084-entry, 13,481,165-byte source tree uses explicit 6,000-entry
+and 20 MiB solver export limits. Complete manifest construction globally sorts
+validated paths before canonical digesting, so nested directory traversal
+order cannot make a safe large repository fail strict ordering.
+
+OpenLibrary remains the deliberate no-submodule boundary case. It is not
+substituted with official-image source or represented as a successful CLI run.
+
 ## Non-goals
 
 There is no provider-backed LLM integration, cache, parallel scheduler, remote

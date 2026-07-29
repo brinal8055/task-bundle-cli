@@ -2,8 +2,8 @@
 
 | Area | Requirement | Status | Evidence |
 | --- | --- | --- | --- |
-| Correctness | exact public commits | PASS | Hello-World and OpenLibrary 40-hex commits |
-| Correctness | baseline/golden semantics | PASS | example lifecycle and official OpenLibrary selector checks |
+| Correctness | exact public commits | PASS | Hello-World, OpenLibrary, and selected Ansible 40-hex commits |
+| Correctness | baseline/golden semantics | PASS | synthetic and selected real CLI validation |
 | Correctness | fresh preflight | PASS | every recorded run |
 | Correctness | candidate finalization | PASS | persisted ordered events |
 | Correctness | resolved/unresolved evidence | PASS | example no-op and patch/command reports |
@@ -22,5 +22,23 @@
 | Demonstration | OpenLibrary Task Bundle validate | BLOCKED | init prerequisite blocked |
 | Demonstration | OpenLibrary Task Bundle unresolved | BLOCKED | validation prerequisite blocked |
 | Demonstration | OpenLibrary Task Bundle resolved | BLOCKED | validation prerequisite blocked |
+| Demonstration | supported SWE-bench Pro init | PASS | `cmd_ead91f…7422` |
+| Demonstration | supported SWE-bench Pro validation | PASS | `cmd_95994a…e125` |
+| Demonstration | supported SWE-bench Pro no-op | PASS | `cmd_5a1105…3325`, expected exit 1 |
+| Demonstration | supported SWE-bench Pro golden candidate | PASS | `cmd_846788…6be4` |
+| Assignment | Demo on one SWE-bench Pro task | PASS | complete selected Ansible CLI lifecycle |
 | Packaging | lint/type/unit/build/clean wheel | PASS | final verification gates |
 | Handoff | private GitHub collaborators added | BLOCKED | manual owner action required |
+
+Final required status summary:
+
+```text
+Synthetic lifecycle                 PASS
+Synthetic hidden isolation          PASS
+Synthetic security suite            PASS
+OpenLibrary source import           BLOCKED — unsupported gitlinks
+Real supported SWE-bench Pro init   PASS
+Real supported validation           PASS
+Real supported no-op                PASS
+Real supported golden candidate     PASS
+```

@@ -24,8 +24,10 @@ jobs:
       - name: Lint
         run: uv run ruff check .
       - name: Type check
-        run: uv run mypy
+        run: uv run mypy src tests
       - name: Unit and fake-runner tests
         run: uv run pytest -q
+      - name: Validate portable submission reports
+        run: uv run python scripts/verify-portable-reports.py
       - name: Build distributions
         run: uv build

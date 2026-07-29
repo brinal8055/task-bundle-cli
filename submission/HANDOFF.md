@@ -17,6 +17,26 @@ Then verify each invitation in the repository Settings → Collaborators page.
 These collaborators have not been claimed as added by this implementation
 session.
 
-Before publishing, rerun `scripts/verify-submission.sh`, inspect `git status`,
-and confirm the ignored `.task/`/`artifacts/` demo state is absent from the
-commit.
+Before publishing:
+
+```bash
+scripts/verify-submission.sh
+scripts/verify-submission.sh --real
+git status --short
+git diff --check
+```
+
+Then confirm no `.task/`, `artifacts/`, database, Docker export, generated
+context, credential, local absolute path, or temporary source tree is
+committed. Review `submission/reports/real-task-command-evidence.md` and
+`submission/reports/final-cleanup-audit.md`.
+
+Do not recreate the GitHub repository, push, or send invitations until the
+authenticated owner confirms `<owner>` and permission to act. Required
+collaborators remain:
+
+```text
+Gurvir36
+tanmay-a-sharma
+naveenr45
+```
