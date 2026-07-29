@@ -30,8 +30,9 @@ def test_models_reject_unknown_fields() -> None:
 
 
 def test_base_image_must_be_digest_pinned() -> None:
-    with pytest.raises(ValidationError):
-        BaseImageEnvironment(type="base_image", image="python:3.12")
+    for image in ("python:3.12", f"python@sha256:{'A' * 64}"):
+        with pytest.raises(ValidationError):
+            BaseImageEnvironment(type="base_image", image=image)
 
 
 def test_environment_types_have_distinct_requirements() -> None:

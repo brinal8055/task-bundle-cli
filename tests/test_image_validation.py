@@ -14,16 +14,21 @@ from tests.bundle_helpers import create_bundle, read_task, write_task
 
 
 def test_base_image_must_be_safe_lowercase_digest_reference() -> None:
-    valid = f"registry.example/team/image@sha256:{'A' * 64}"
+    valid = f"registry.example/team/image@sha256:{'a' * 64}"
 
-    assert validate_base_image_reference(valid).endswith("a" * 64)
+    assert validate_base_image_reference(valid) == valid
 
     for invalid in (
         "ubuntu:latest",
+        "registry/image",
         f"https://registry/image@sha256:{'a' * 64}",
         f"User:pass@registry/image@sha256:{'a' * 64}",
         f"Registry/Image@sha256:{'a' * 64}",
+        f"registry/image@SHA256:{'a' * 64}",
+        f"registry/image@sha512:{'a' * 64}",
+        f"registry/image@sha256:{'A' * 64}",
         f"registry/image@sha256:{'a' * 63}",
+        f"registry/image@sha256:{'a' * 65}",
         f"registry/image@sha256:{'a' * 64};touch",
     ):
         with pytest.raises(TaskBundleError) as caught:

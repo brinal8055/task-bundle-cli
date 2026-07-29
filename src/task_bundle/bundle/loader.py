@@ -168,11 +168,11 @@ def _evaluation_digests(
     by_path = {entry.path: entry for entry in manifest}
     test_patch = by_path[task.evaluation.test_patch]
     golden_patch = by_path[task.evaluation.golden_patch]
-    hidden_paths = {test_patch.path, golden_patch.path}
     harness = [
         entry.model_dump(mode="json")
         for entry in manifest
-        if entry.path.startswith("evaluation/") and entry.path not in hidden_paths
+        if entry.path.startswith("evaluation/")
+        and not entry.path.startswith("evaluation/hidden/")
     ]
     selector_document = {
         "pass_to_pass": [

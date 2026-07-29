@@ -125,6 +125,7 @@ def test_materialisation_preserves_export_ignored_and_substituted_blobs(
     assert (materialized.root / "literal-format.txt").read_text() == "$Format:%H$\n"
     assert (materialized.root / "literal-ident.txt").read_bytes() == b"$Id$\n"
     assert (materialized.root / "literal-lf.txt").read_bytes() == b"line\n"
+    assert (materialized.root / "binary.bin").read_bytes() == b"\x00\xff\xfe\x80raw\r\n"
 
 
 def test_missing_commit_is_rejected(tmp_path: Path) -> None:

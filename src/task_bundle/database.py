@@ -3,7 +3,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 _MIGRATION_1 = """
 CREATE TABLE commands (
@@ -86,7 +86,28 @@ _MIGRATION_2 = """
 ALTER TABLE commands ADD COLUMN bundle_path TEXT;
 ALTER TABLE commands ADD COLUMN message TEXT;
 """
-_MIGRATIONS = (_MIGRATION_1, _MIGRATION_2)
+_MIGRATION_3 = """
+ALTER TABLE validations ADD COLUMN validation_key TEXT;
+ALTER TABLE validations ADD COLUMN repeat_count INTEGER;
+ALTER TABLE validations ADD COLUMN started_at TEXT;
+ALTER TABLE validations ADD COLUMN finished_at TEXT;
+ALTER TABLE validations ADD COLUMN test_patch_digest TEXT;
+ALTER TABLE validations ADD COLUMN golden_patch_digest TEXT;
+
+ALTER TABLE evaluations ADD COLUMN validation_id INTEGER REFERENCES validations(id);
+ALTER TABLE evaluations ADD COLUMN repeat_index INTEGER;
+ALTER TABLE evaluations ADD COLUMN evaluation_status TEXT;
+ALTER TABLE evaluations ADD COLUMN container_id TEXT;
+ALTER TABLE evaluations ADD COLUMN workspace_id TEXT;
+ALTER TABLE evaluations ADD COLUMN evaluation_storage_id TEXT;
+ALTER TABLE evaluations ADD COLUMN test_patch_digest TEXT;
+ALTER TABLE evaluations ADD COLUMN golden_patch_digest TEXT;
+ALTER TABLE evaluations ADD COLUMN cleaned_up INTEGER;
+
+CREATE INDEX validations_validation_key_idx ON validations(validation_key);
+CREATE INDEX evaluations_validation_id_idx ON evaluations(validation_id);
+"""
+_MIGRATIONS = (_MIGRATION_1, _MIGRATION_2, _MIGRATION_3)
 
 
 class Database:

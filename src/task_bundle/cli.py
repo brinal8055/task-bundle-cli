@@ -10,6 +10,8 @@ from task_bundle import __version__, lifecycle
 from task_bundle.errors import TaskBundleError
 from task_bundle.image.models import InitResult
 from task_bundle.image.service import InitOptions
+from task_bundle.validation.models import ValidationResult, ValidationStatus
+from task_bundle.validation.service import ValidationOptions
 
 app = typer.Typer(
     name="task",
@@ -150,9 +152,70 @@ def _render_init_result(result: InitResult, output: Console) -> None:
 
 
 @app.command()
-def validate(bundle: Annotated[Path, typer.Argument(help="Path to the task bundle.")]) -> None:
+def validate(
+    bundle: Annotated[Path, typer.Argument(help="Path to the task bundle.")],
+    repeat: Annotated[
+        int | None,
+        typer.Option("--repeat", min=1, help="Override the configured repeat count."),
+    ] = None,
+    keep_containers: Annotated[
+        bool,
+        typer.Option(
+            "--keep-containers",
+            help="Retain evaluator containers and hidden inputs for debugging.",
+        ),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit a machine-readable JSON result."),
+    ] = False,
+    no_colour: Annotated[
+        bool,
+        typer.Option("--no-colour", help="Disable coloured output."),
+    ] = False,
+) -> None:
     """Validate baseline and golden task behavior."""
-    _invoke(lifecycle.validate_bundle, bundle)
+    output = Console(no_color=no_colour)
+    result = _invoke(
+        lifecycle.validate_bundle,
+        bundle,
+        ValidationOptions(repeat=repeat, keep_containers=keep_containers),
+        output=output,
+        json_errors=json_output,
+    )
+    if json_output:
+        typer.echo(result.model_dump_json(indent=2))
+    else:
+        _render_validation_result(result, output)
+    if result.validation_status != ValidationStatus.VALID:
+        raise typer.Exit(code=4)
+
+
+def _render_validation_result(result: ValidationResult, output: Console) -> None:
+    colour = "green" if result.validation_status == ValidationStatus.VALID else "red"
+    output.print(
+        f"[bold {colour}]Validation: {result.validation_status.value.upper()}[/bold {colour}]"
+    )
+    output.print(
+        "Baseline: "
+        f"P2P {result.baseline.pass_to_pass_matched}/"
+        f"{result.baseline.pass_to_pass_total}, "
+        f"F2P {result.baseline.fail_to_pass_matched}/"
+        f"{result.baseline.fail_to_pass_total}"
+    )
+    if result.golden is not None:
+        output.print(
+            "Golden: "
+            f"P2P {result.golden.pass_to_pass_matched}/"
+            f"{result.golden.pass_to_pass_total}, "
+            f"F2P {result.golden.fail_to_pass_matched}/"
+            f"{result.golden.fail_to_pass_total}"
+        )
+    output.print(f"Command: {result.command_id}")
+    output.print(f"Validation: {result.validation_id}")
+    output.print(f"Artifacts: {result.artifact_directory}")
+    for warning in result.warnings:
+        output.print(f"[yellow]Warning: {warning}[/yellow]")
 
 
 @app.command()

@@ -114,7 +114,7 @@ class DockerfileEnvironment(StrictModel):
 
 class BaseImageEnvironment(StrictModel):
     type: Literal["base_image"]
-    image: str = Field(pattern=r"^.+@sha256:[0-9a-fA-F]{64}$")
+    image: str = Field(pattern=r"^.+@sha256:[0-9a-f]{64}$")
     platform: str = "linux/amd64"
     build: BuildSettings = Field(default_factory=BuildSettings)
     runtime: RuntimeSettings = Field(default_factory=RuntimeSettings)
@@ -129,6 +129,13 @@ Environment = Annotated[
 class CommandSpec(StrictModel):
     command: list[str] = Field(min_length=1)
 
+    @field_validator("command")
+    @classmethod
+    def command_must_be_safe_argv(cls, value: list[str]) -> list[str]:
+        if any(not item or "\0" in item for item in value):
+            raise ValueError("command arguments must be non-empty and contain no NUL")
+        return value
+
 
 class PrepareSpec(CommandSpec):
     network: Literal[False] = False
@@ -137,6 +144,24 @@ class PrepareSpec(CommandSpec):
 class RunnerSpec(CommandSpec):
     result_file: str
     result_schema_version: Literal["1"] = "1"
+
+    @field_validator("result_file")
+    @classmethod
+    def result_file_must_be_inside_output(cls, value: str) -> str:
+        path = PurePosixPath(value)
+        output = PurePosixPath("/evaluation/output")
+        try:
+            relative = path.relative_to(output)
+        except ValueError as error:
+            raise ValueError("result_file must be inside /evaluation/output") from error
+        if (
+            not path.is_absolute()
+            or ".." in path.parts
+            or path.as_posix() != value
+            or relative.as_posix() in {"", "."}
+        ):
+            raise ValueError("result_file must be a normalized output file path")
+        return value
 
 
 class PassToPass(StrictModel):
@@ -165,7 +190,7 @@ class FailToPass(PassToPass):
 class EvaluationConfig(StrictModel):
     test_patch: str
     golden_patch: str
-    prepare: PrepareSpec
+    prepare: PrepareSpec | None = None
     runner: RunnerSpec
     pass_to_pass: list[PassToPass] = Field(min_length=1)
     fail_to_pass: list[FailToPass] = Field(min_length=1)
@@ -203,7 +228,7 @@ class TaskConfig(StrictModel):
 
 
 class TestResult(StrictModel):
-    requested_selector: str
+    requested_selector: str = Field(min_length=1)
     observed_id: str | None = None
     status: TestStatus
     duration_ms: int | None = Field(default=None, ge=0)
@@ -212,15 +237,28 @@ class TestResult(StrictModel):
 
 class NormalizedResult(StrictModel):
     schema_version: Literal["1"]
-    framework: str
+    framework: str = Field(min_length=1)
     harness_status: HarnessStatus
     collection_succeeded: bool
     execution_started: bool
-    command: list[str]
+    command: list[str] = Field(min_length=1)
     started_at: datetime
     finished_at: datetime
     exit_code: int | None
     tests: list[TestResult]
+
+    @field_validator("started_at", "finished_at")
+    @classmethod
+    def timestamps_must_include_timezone(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("result timestamps must include a timezone")
+        return value.astimezone(UTC)
+
+    @model_validator(mode="after")
+    def finished_at_must_not_precede_start(self) -> "NormalizedResult":
+        if self.finished_at < self.started_at:
+            raise ValueError("finished_at must not precede started_at")
+        return self
 
 
 class EvaluationPlan(StrictModel):

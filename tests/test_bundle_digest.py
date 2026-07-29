@@ -200,6 +200,27 @@ def test_database_fixture_inside_evaluation_is_digest_covered(
     assert first.bundle_input_digest != second.bundle_input_digest
 
 
+def test_hidden_inputs_are_digest_covered_but_excluded_from_harness_identity(
+    tmp_path: Path,
+    bundle_factory: BundleFactory,
+) -> None:
+    root = bundle_factory(tmp_path / "bundle")
+    first = load_bundle(root)
+    hidden = root / "evaluation/hidden/extra-secret.txt"
+    hidden.write_text("first", encoding="utf-8")
+    second = load_bundle(root)
+    hidden.write_text("second", encoding="utf-8")
+    third = load_bundle(root)
+
+    assert first.bundle_input_digest != second.bundle_input_digest
+    assert second.bundle_input_digest != third.bundle_input_digest
+    assert (
+        first.evaluation_inputs.harness_sha256
+        == second.evaluation_inputs.harness_sha256
+        == third.evaluation_inputs.harness_sha256
+    )
+
+
 def test_manifest_is_sorted_and_digest_is_prefixed_lowercase(
     tmp_path: Path, bundle_factory: BundleFactory
 ) -> None:

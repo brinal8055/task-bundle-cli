@@ -60,6 +60,7 @@ def test_sanitized_docker_environment_drops_host_and_secrets(
 ) -> None:
     monkeypatch.setenv("DOCKER_HOST", "tcp://remote.invalid:2375")
     monkeypatch.setenv("DOCKER_CONTEXT", "remote")
+    monkeypatch.setenv("DOCKER_CONFIG", str(tmp_path / "credentialed-config"))
     monkeypatch.setenv("GITHUB_TOKEN", "secret")
     monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "secret")
 
@@ -67,6 +68,7 @@ def test_sanitized_docker_environment_drops_host_and_secrets(
 
     assert "DOCKER_HOST" not in environment
     assert "DOCKER_CONTEXT" not in environment
+    assert "DOCKER_CONFIG" not in environment
     assert "GITHUB_TOKEN" not in environment
     assert "AWS_SECRET_ACCESS_KEY" not in environment
     assert environment["HOME"] == str(tmp_path / "home")

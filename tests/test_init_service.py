@@ -156,6 +156,23 @@ def test_build_failure_preserves_redacted_command_and_logs_without_lock(
     assert command["command_status"] == "failed"
 
 
+def test_failed_rebuild_preserves_previous_lock_bytes(tmp_path: Path) -> None:
+    bundle = create_bundle(tmp_path / "bundle")
+    source = StaticSourceFactory(tmp_path / "source")
+    docker = FakeDockerRunner()
+    service, _ = _service(tmp_path, source, docker)
+    service.run(bundle, InitOptions())
+    lock_path = bundle / LOCK_RELATIVE_PATH
+    previous_lock = lock_path.read_bytes()
+    (bundle / "public/description.md").write_text("changed\n", encoding="utf-8")
+    docker.fail_on = "build"
+
+    with pytest.raises(TaskBundleError):
+        service.run(bundle, InitOptions(rebuild=True))
+
+    assert lock_path.read_bytes() == previous_lock
+
+
 def test_smoke_failure_always_removes_container_and_writes_no_lock(
     tmp_path: Path,
 ) -> None:

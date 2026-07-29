@@ -19,6 +19,7 @@ class CommandStore:
         command_id: str,
         task_id: str,
         bundle_path: Path,
+        command_type: str = "init",
         started_at: datetime | None = None,
     ) -> None:
         timestamp = _timestamp(started_at)
@@ -26,11 +27,11 @@ class CommandStore:
             """
             INSERT INTO commands (
                 id, task_id, command_type, command_status, started_at, bundle_path
-            ) VALUES (?, ?, 'init', 'running', ?, ?)
+            ) VALUES (?, ?, ?, 'running', ?, ?)
             """,
-            (command_id, task_id, timestamp, str(bundle_path)),
+            (command_id, task_id, command_type, timestamp, str(bundle_path)),
         )
-        self.event(command_id, "COMMAND_STARTED", {"command_type": "init"})
+        self.event(command_id, "COMMAND_STARTED", {"command_type": command_type})
 
     def update_identity(
         self,

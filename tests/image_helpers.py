@@ -16,13 +16,14 @@ from task_bundle.source.validation import normalize_repository_url
 
 class StaticSourceFactory:
     def __init__(self, root: Path) -> None:
-        root.mkdir()
-        (root / "README.md").write_text("source\n", encoding="utf-8")
-        (root / "bin").mkdir()
-        tool = root / "bin" / "tool"
-        tool.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-        tool.chmod(0o755)
-        (root / "tool-link").symlink_to("bin/tool")
+        if not root.exists():
+            root.mkdir()
+            (root / "README.md").write_text("source\n", encoding="utf-8")
+            (root / "bin").mkdir()
+            tool = root / "bin" / "tool"
+            tool.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+            tool.chmod(0o755)
+            (root / "tool-link").symlink_to("bin/tool")
         self.root = root
         self.calls = 0
 

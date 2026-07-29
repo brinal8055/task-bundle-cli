@@ -7,7 +7,7 @@ from task_bundle.models import RuntimeSettings
 
 _BASE_IMAGE = re.compile(
     r"^(?:[a-z0-9](?:[a-z0-9._:-]*[a-z0-9])?/)*"
-    r"[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?@sha256:([0-9a-fA-F]{64})$"
+    r"[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?@sha256:([0-9a-f]{64})$"
 )
 _PLATFORM = re.compile(r"^[a-z0-9]+/[a-z0-9_]+(?:/[a-z0-9._-]+)?$")
 _BUILD_ARG_NAME = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -35,8 +35,7 @@ def validate_base_image_reference(value: str) -> str:
             "The configured base image does not meet the immutable-reference policy.",
             "Use a credential-free lowercase registry/repository digest reference.",
         )
-    name, digest = value.rsplit("@sha256:", 1)
-    return f"{name}@sha256:{digest.lower()}"
+    return value
 
 
 def validate_platform(value: str) -> str:

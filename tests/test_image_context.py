@@ -44,6 +44,16 @@ def test_generated_context_is_physical_minimal_and_deterministic(tmp_path: Path)
             assert (first.root / "Dockerfile").read_bytes() == (
                 bundle.root / bundle.task.environment.dockerfile
             ).read_bytes()
+            repo_entries = tuple(
+                entry.model_copy(update={"path": entry.path.removeprefix("repo/")})
+                for entry in first.manifest.entries
+                if entry.path.startswith("repo/")
+            )
+            assert repo_entries == source.manifest.entries
+            assert (
+                first.metadata.repository_source_digest
+                == source.resolved.source_tree_digest
+            )
         assert not first_root.exists()
 
         with create_build_context(

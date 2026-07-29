@@ -57,6 +57,7 @@ def create_git_repository(
         )
         (root / "literal-ident.txt").write_text("$Id$\n", encoding="utf-8")
         (root / "literal-lf.txt").write_bytes(b"line\n")
+        (root / "binary.bin").write_bytes(b"\x00\xff\xfe\x80raw\r\n")
     _git(root, "add", "-A")
     _git(root, "commit", "-q", "-m", "fixture")
     commit = _git(root, "rev-parse", "HEAD")
