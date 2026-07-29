@@ -58,10 +58,18 @@ class VerificationRunner:
             output = ""
         return GitCommandResult(f"{output}\n", "", 0, False)
 
+    def write_blob(
+        self,
+        *,
+        object_repository: Path,
+        object_id: str,
+        destination: Path,
+        timeout_seconds: int,
+    ) -> None:
+        raise AssertionError("Verification-only runner must not materialise blobs")
 
-def _materialize(
-    tmp_path: Path, fixture: GitFixture
-) -> tuple[Path, MaterializedSource]:
+
+def _materialize(tmp_path: Path, fixture: GitFixture) -> tuple[Path, MaterializedSource]:
     workspace = tmp_path / "workspace"
     workspace.mkdir(parents=True)
     runner = local_fetch_runner(workspace / "home", fixture.root)
@@ -101,6 +109,22 @@ def test_same_commit_materialises_with_stable_identity(tmp_path: Path) -> None:
     assert first.manifest == second.manifest
     assert first.resolved.source_tree_digest == second.resolved.source_tree_digest
     assert first.resolved.tree_sha == second.resolved.tree_sha
+
+
+def test_materialisation_preserves_export_ignored_and_substituted_blobs(
+    tmp_path: Path,
+) -> None:
+    fixture = create_git_repository(
+        tmp_path / "repository",
+        export_attributes=True,
+    )
+
+    _, materialized = _materialize(tmp_path, fixture)
+
+    assert (materialized.root / "archive-only.txt").read_text() == "must remain\n"
+    assert (materialized.root / "literal-format.txt").read_text() == "$Format:%H$\n"
+    assert (materialized.root / "literal-ident.txt").read_bytes() == b"$Id$\n"
+    assert (materialized.root / "literal-lf.txt").read_bytes() == b"line\n"
 
 
 def test_missing_commit_is_rejected(tmp_path: Path) -> None:
@@ -255,9 +279,7 @@ def test_cleanup_failure_is_structured(
     monkeypatch.setattr("task_bundle.source.service.shutil.rmtree", fail_cleanup)
     request = SourceRequest(repository_url=PUBLIC_FIXTURE_URL, commit=fixture.commit)
     try:
-        with pytest.raises(TaskBundleError) as caught, materialize_source(
-            request
-        ) as materialized:
+        with pytest.raises(TaskBundleError) as caught, materialize_source(request) as materialized:
             workspace = materialized.root.parent
         assert caught.value.code == ErrorCode.SOURCE_CLEANUP_ERROR
     finally:

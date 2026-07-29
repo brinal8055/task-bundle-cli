@@ -3,7 +3,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 _MIGRATION_1 = """
 CREATE TABLE commands (
@@ -82,7 +82,11 @@ CREATE TABLE artifacts (
     size_bytes INTEGER NOT NULL
 );
 """
-_MIGRATIONS = (_MIGRATION_1,)
+_MIGRATION_2 = """
+ALTER TABLE commands ADD COLUMN bundle_path TEXT;
+ALTER TABLE commands ADD COLUMN message TEXT;
+"""
+_MIGRATIONS = (_MIGRATION_1, _MIGRATION_2)
 
 
 class Database:
@@ -116,10 +120,7 @@ class Database:
             script = _MIGRATIONS[target_version - 1]
             try:
                 connection.executescript(
-                    "BEGIN IMMEDIATE;\n"
-                    f"{script}\n"
-                    f"PRAGMA user_version = {target_version};\n"
-                    "COMMIT;"
+                    f"BEGIN IMMEDIATE;\n{script}\nPRAGMA user_version = {target_version};\nCOMMIT;"
                 )
             except sqlite3.Error:
                 connection.rollback()

@@ -78,7 +78,13 @@ def normalize_commit_sha(value: str) -> str:
 
 
 def validate_symlink_target(path: str, target: str) -> None:
-    if not target or "\\" in target or PurePosixPath(target).is_absolute():
+    if (
+        not target
+        or "\\" in target
+        or PurePosixPath(target).is_absolute()
+        or any(0xDC80 <= ord(character) <= 0xDCFF for character in target)
+        or any(ord(character) < 32 or ord(character) == 127 for character in target)
+    ):
         raise ValueError("symlink target must be non-empty and relative")
     resolved = posixpath.normpath(posixpath.join(posixpath.dirname(path), target))
     if resolved == ".." or resolved.startswith("../") or resolved.startswith("/"):

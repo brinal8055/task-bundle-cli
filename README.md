@@ -10,16 +10,18 @@ The completed secure bundle core is documented in
 [Phase 1: Secure Bundle Core](docs/phase-1-secure-bundle-core.md).
 Trusted source acquisition is documented in
 [Phase 2: Trusted Git Source Materialisation](docs/phase-2-trusted-git-source.md).
+Task image construction is documented in
+[Phase 3: Task Image Construction and `task init`](docs/phase-3-task-image-init.md).
 
 ## Roadmap
 
-- Phase 0 — Foundation
-- Phase 1 — Secure bundle core
-- Phase 2 — Trusted Git source materialisation
-- Phase 3 — Task image construction and task init
-- Phase 4 — Baseline and golden validation
-- Phase 5 — Solver and candidate evaluation
-- Phase 6 — Security verification and real benchmark
+- Phase 0 — Foundation (complete)
+- Phase 1 — Secure bundle core (complete)
+- Phase 2 — Trusted Git source materialisation (complete after focused audit)
+- Phase 3 — Task image construction and task init (complete)
+- Phase 4 — Baseline and golden validation (next; not implemented)
+- Phase 5 — Solver and candidate evaluation (not implemented)
+- Phase 6 — Security verification and real benchmark (not implemented)
 
 ## Development
 
@@ -34,5 +36,6 @@ uv run mypy
 uv build
 ```
 
-Machine-readable and colour-control output flags are deferred to the reporting
-phase described in the technical design.
+`task init` supports JSON output, colour control, strict lock freshness, and
+opt-in build-context retention. Later lifecycle commands remain intentionally
+unimplemented until their corresponding phases.

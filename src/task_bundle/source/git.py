@@ -13,9 +13,17 @@ from task_bundle.errors import ErrorCode, ErrorContext, TaskBundleError
 _GIT_VERSION = re.compile(r"^git version ([^\s]+)")
 _SAFE_CONFIG = (
     "core.hooksPath=/dev/null",
+    "core.autocrlf=false",
+    "core.eol=lf",
+    "core.filemode=true",
+    "core.safecrlf=false",
+    "core.symlinks=true",
     "credential.helper=",
+    "http.followRedirects=initial",
     "protocol.allow=never",
     "protocol.https.allow=always",
+    "protocol.http.allow=never",
+    "protocol.git.allow=never",
     "protocol.file.allow=never",
     "protocol.ext.allow=never",
     "protocol.ssh.allow=never",
@@ -50,6 +58,15 @@ class GitRunner(Protocol):
         phase: str,
         description: str,
     ) -> GitCommandResult: ...
+
+    def write_blob(
+        self,
+        *,
+        object_repository: Path,
+        object_id: str,
+        destination: Path,
+        timeout_seconds: int,
+    ) -> None: ...
 
 
 class SystemGitRunner:
@@ -112,6 +129,26 @@ class SystemGitRunner:
                 ),
             )
         return result
+
+    def write_blob(
+        self,
+        *,
+        object_repository: Path,
+        object_id: str,
+        destination: Path,
+        timeout_seconds: int,
+    ) -> None:
+        command = [self.installation.executable]
+        for setting in _SAFE_CONFIG:
+            command.extend(("-c", setting))
+        command.extend(("-C", str(object_repository), "cat-file", "blob", object_id))
+        _execute_to_path(
+            command,
+            cwd=object_repository.parent,
+            environment=self.environment,
+            destination=destination,
+            timeout_seconds=timeout_seconds,
+        )
 
 
 def sanitized_git_environment(home: Path) -> dict[str, str]:
@@ -235,11 +272,76 @@ def _execute(
     )
 
 
+def _execute_to_path(
+    command: Sequence[str],
+    *,
+    cwd: Path,
+    environment: Mapping[str, str],
+    destination: Path,
+    timeout_seconds: int,
+) -> None:
+    try:
+        with destination.open("xb") as output, tempfile.TemporaryFile() as stderr_file:
+            process = subprocess.Popen(
+                list(command),
+                cwd=cwd,
+                env=dict(environment),
+                stdin=subprocess.DEVNULL,
+                stdout=output,
+                stderr=stderr_file,
+                shell=False,
+            )
+            try:
+                exit_code = process.wait(timeout=timeout_seconds)
+            except subprocess.TimeoutExpired as error:
+                process.kill()
+                process.wait()
+                raise TaskBundleError(
+                    ErrorCode.SOURCE_MATERIALIZATION_ERROR,
+                    "Git timed out while reading a verified source blob.",
+                    ErrorContext(
+                        phase="source-materialize",
+                        expected=f"Blob read within {timeout_seconds} seconds",
+                        actual="The Git process exceeded its timeout",
+                        corrective_action="Check temporary storage and repository integrity.",
+                    ),
+                ) from error
+            stderr, _ = _read_output(stderr_file, 8192)
+        if exit_code != 0:
+            raise TaskBundleError(
+                ErrorCode.SOURCE_MATERIALIZATION_ERROR,
+                "Git could not read a verified source blob.",
+                ErrorContext(
+                    phase="source-materialize",
+                    expected="The fetched blob object to be readable",
+                    actual=f"Exit code {exit_code}: {_stderr_excerpt(stderr)}",
+                    corrective_action="Verify repository object integrity.",
+                    details={"exit_code": exit_code, "stderr": _stderr_excerpt(stderr)},
+                ),
+            )
+    except TaskBundleError:
+        destination.unlink(missing_ok=True)
+        raise
+    except OSError as error:
+        destination.unlink(missing_ok=True)
+        raise TaskBundleError(
+            ErrorCode.SOURCE_MATERIALIZATION_ERROR,
+            "Verified source blob could not be written.",
+            ErrorContext(
+                phase="source-materialize",
+                expected="A new regular file inside the temporary source tree",
+                actual=str(error),
+                corrective_action="Check temporary-directory permissions and disk space.",
+                path=destination,
+            ),
+        ) from error
+
+
 def _read_output(handle: BinaryIO, limit: int) -> tuple[str, bool]:
     handle.seek(0)
     content = handle.read(limit + 1)
     truncated = len(content) > limit
-    text = content[:limit].decode("utf-8", errors="replace")
+    text = content[:limit].decode("utf-8", errors="surrogateescape")
     if truncated:
         text += "\n[output truncated]"
     return text, truncated

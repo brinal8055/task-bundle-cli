@@ -7,6 +7,7 @@ def test_every_error_code_maps_to_a_stable_exit_code() -> None:
     assert set(exit_codes) == set(ErrorCode)
     assert set(exit_codes.values()) <= {2, 3, 4, 5, 6}
     assert exit_codes[ErrorCode.CONFIG_ERROR] == 2
+    assert exit_codes[ErrorCode.BUILD_CONFIG_ERROR] == 2
     assert exit_codes[ErrorCode.CONTAINER_ERROR] == 3
     assert exit_codes[ErrorCode.GOLDEN_VALIDATION_ERROR] == 4
     assert exit_codes[ErrorCode.SOLVER_TIMEOUT] == 5

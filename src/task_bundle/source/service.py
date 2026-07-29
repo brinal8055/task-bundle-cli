@@ -1,8 +1,7 @@
-import re
 import shutil
 import tempfile
 from collections.abc import Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -17,16 +16,14 @@ from task_bundle.models import (
     SourceRequest,
     SourceSymlinkEntry,
 )
-from task_bundle.source.archive import extract_source_archive
 from task_bundle.source.git import GitRunner, SystemGitRunner
 from task_bundle.source.manifest import build_source_manifest, source_manifest_digest
+from task_bundle.source.materialize import materialize_tree, validate_tree_listing
 from task_bundle.source.validation import (
     normalize_commit_sha,
     validate_commit_sha,
     validate_repository_url,
 )
-
-_TREE_ENTRY = re.compile(r"^([0-9]{6}) ([a-z]+) ([0-9a-f]{40})\t(.*)$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -52,7 +49,11 @@ def materialize_source(request: SourceRequest) -> Iterator[MaterializedSource]:
             workspace,
             runner,
         )
-    finally:
+    except BaseException:
+        with suppress(TaskBundleError):
+            _cleanup_workspace(workspace)
+        raise
+    else:
         _cleanup_workspace(workspace)
 
 
@@ -73,7 +74,6 @@ def _materialize_source_with_runner(
     runner: GitRunner,
 ) -> MaterializedSource:
     object_repository = workspace / "objects.git"
-    archive_path = workspace / "source.tar"
     source_root = workspace / "source"
     runner.run(
         ("init", "--bare", str(object_repository)),
@@ -115,14 +115,18 @@ def _materialize_source_with_runner(
             object_type or "missing object type",
             "Pin the task to a commit object rather than a tag or tree.",
         )
-    resolved_commit = runner.run(
-        ("-C", str(object_repository), "rev-parse", "--verify", f"{commit}^{{commit}}"),
-        cwd=workspace,
-        timeout_seconds=timeout_seconds,
-        error_code=ErrorCode.SOURCE_OBJECT_ERROR,
-        phase="source-verify",
-        description="resolve the exact commit",
-    ).stdout.strip().lower()
+    resolved_commit = (
+        runner.run(
+            ("-C", str(object_repository), "rev-parse", "--verify", f"{commit}^{{commit}}"),
+            cwd=workspace,
+            timeout_seconds=timeout_seconds,
+            error_code=ErrorCode.SOURCE_OBJECT_ERROR,
+            phase="source-verify",
+            description="resolve the exact commit",
+        )
+        .stdout.strip()
+        .lower()
+    )
     if resolved_commit != commit:
         _source_error(
             ErrorCode.SOURCE_COMMIT_MISMATCH,
@@ -160,7 +164,8 @@ def _materialize_source_with_runner(
         phase="source-verify",
         description="inspect the source tree",
     ).stdout
-    gitlinks = _gitlink_paths(tree_listing)
+    tree_entries = validate_tree_listing(tree_listing)
+    gitlinks = sorted(entry.path for entry in tree_entries if entry.mode == "160000")
     if gitlinks:
         raise TaskBundleError(
             ErrorCode.SOURCE_SUBMODULE_UNSUPPORTED,
@@ -173,22 +178,13 @@ def _materialize_source_with_runner(
                 details={"paths": gitlinks},
             ),
         )
-    runner.run(
-        (
-            "-C",
-            str(object_repository),
-            "archive",
-            "--format=tar",
-            f"--output={archive_path}",
-            commit,
-        ),
-        cwd=workspace,
+    materialize_tree(
+        runner,
+        object_repository=object_repository,
+        source_root=source_root,
+        entries=tree_entries,
         timeout_seconds=timeout_seconds,
-        error_code=ErrorCode.SOURCE_ARCHIVE_ERROR,
-        phase="source-archive",
-        description="archive the verified commit",
     )
-    extract_source_archive(archive_path, source_root)
     manifest = build_source_manifest(source_root)
     digest = source_manifest_digest(manifest)
     resolved = _resolved_source(
@@ -210,25 +206,6 @@ def _materialize_source_with_runner(
     )
 
 
-def _gitlink_paths(listing: str) -> list[str]:
-    gitlinks: list[str] = []
-    for record in listing.split("\0"):
-        if not record:
-            continue
-        match = _TREE_ENTRY.fullmatch(record)
-        if match is None:
-            _source_error(
-                ErrorCode.SOURCE_TREE_ERROR,
-                "Git tree listing is malformed.",
-                "A valid `git ls-tree -r -z` record",
-                record[:200],
-                "Verify repository object integrity and Git compatibility.",
-            )
-        if match.group(1) == "160000":
-            gitlinks.append(match.group(4))
-    return sorted(gitlinks)
-
-
 def _resolved_source(
     repository_url: str,
     requested_commit: str,
@@ -240,9 +217,7 @@ def _resolved_source(
     git_version: str,
 ) -> ResolvedSource:
     files = [entry for entry in manifest.entries if isinstance(entry, SourceFileEntry)]
-    symlinks = [
-        entry for entry in manifest.entries if isinstance(entry, SourceSymlinkEntry)
-    ]
+    symlinks = [entry for entry in manifest.entries if isinstance(entry, SourceSymlinkEntry)]
     return ResolvedSource(
         repository_url=repository_url,
         requested_commit=requested_commit,

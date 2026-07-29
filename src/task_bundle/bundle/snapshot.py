@@ -51,7 +51,53 @@ def write_snapshot_atomic(snapshot: BundleSnapshot, destination: Path) -> None:
 
 
 def write_json_atomic(
-    value: BaseModel,
+    value: BaseModel | dict[str, Any] | list[Any],
+    destination: Path,
+    *,
+    error_code: ErrorCode,
+    phase: str,
+    message: str,
+) -> None:
+    try:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        document = (
+            value.model_dump(mode="json", exclude_none=False)
+            if isinstance(value, BaseModel)
+            else value
+        )
+        payload = (
+            json.dumps(
+                document,
+                sort_keys=True,
+                indent=2,
+                ensure_ascii=False,
+            ).encode()
+            + b"\n"
+        )
+        write_bytes_atomic(
+            payload,
+            destination,
+            error_code=error_code,
+            phase=phase,
+            message=message,
+        )
+    except (TypeError, ValueError) as error:
+        raise TaskBundleError(
+            error_code,
+            message,
+            ErrorContext(
+                phase=phase,
+                expected="A JSON-serializable atomic snapshot replacement",
+                actual=str(error),
+                corrective_action="Correct the structured artifact value.",
+                path=destination,
+                details={"error_type": type(error).__name__, "error": str(error)},
+            ),
+        ) from error
+
+
+def write_bytes_atomic(
+    payload: bytes,
     destination: Path,
     *,
     error_code: ErrorCode,
@@ -61,14 +107,8 @@ def write_json_atomic(
     temporary: Path | None = None
     try:
         destination.parent.mkdir(parents=True, exist_ok=True)
-        payload = json.dumps(
-            value.model_dump(mode="json", exclude_none=False),
-            sort_keys=True,
-            indent=2,
-            ensure_ascii=False,
-        ).encode("utf-8") + b"\n"
         descriptor, temporary_name = tempfile.mkstemp(
-            prefix=".bundle.snapshot.",
+            prefix=f".{destination.name}.",
             suffix=".tmp",
             dir=destination.parent,
         )
@@ -86,7 +126,7 @@ def write_json_atomic(
             message,
             ErrorContext(
                 phase=phase,
-                expected="An atomic snapshot replacement",
+                expected="An atomic file replacement",
                 actual=str(error),
                 corrective_action="Check destination permissions and available disk space.",
                 path=destination,
@@ -141,9 +181,7 @@ def compare_snapshot(
     expected = {entry.path: entry for entry in snapshot.input_manifest}
     actual = {entry.path: entry for entry in current.input_manifest}
     changed = {
-        path
-        for path in expected.keys() | actual.keys()
-        if expected.get(path) != actual.get(path)
+        path for path in expected.keys() | actual.keys() if expected.get(path) != actual.get(path)
     }
     if snapshot.canonical_config_sha256 != current.canonical_config_sha256:
         changed.add("<task-config>")

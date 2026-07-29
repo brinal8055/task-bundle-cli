@@ -127,9 +127,12 @@ def test_runner_applies_git_security_configuration(tmp_path: Path) -> None:
     assert "credential.helper=" in result.stdout
     assert "protocol.allow=never" in result.stdout
     assert "protocol.https.allow=always" in result.stdout
+    assert "protocol.http.allow=never" in result.stdout
+    assert "protocol.git.allow=never" in result.stdout
     assert "protocol.file.allow=never" in result.stdout
     assert "protocol.ext.allow=never" in result.stdout
     assert "protocol.ssh.allow=never" in result.stdout
+    assert "http.followRedirects=initial" in result.stdout
     assert "submodule.recurse=false" in result.stdout
 
 

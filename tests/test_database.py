@@ -93,3 +93,32 @@ def test_failed_migration_leaves_no_partial_schema(
 
     assert version == 0
     assert partial is None
+
+
+def test_version_one_database_upgrades_without_losing_commands(tmp_path: Path) -> None:
+    database = Database(tmp_path / "task.db")
+    connection = sqlite3.connect(database.path)
+    try:
+        connection.executescript(database_module._MIGRATION_1)
+        connection.execute("PRAGMA user_version = 1")
+        connection.execute(
+            """
+            INSERT INTO commands (
+                id, task_id, command_type, command_status, started_at
+            ) VALUES ('cmd_existing', 'task', 'init', 'succeeded', '2026-07-29T00:00:00Z')
+            """
+        )
+        connection.commit()
+    finally:
+        connection.close()
+
+    with database.connect() as upgraded:
+        row = upgraded.execute(
+            "SELECT id, bundle_path, message FROM commands WHERE id = 'cmd_existing'"
+        ).fetchone()
+        version = upgraded.execute("PRAGMA user_version").fetchone()[0]
+
+    assert version == database_module.SCHEMA_VERSION
+    assert row["id"] == "cmd_existing"
+    assert row["bundle_path"] is None
+    assert row["message"] is None

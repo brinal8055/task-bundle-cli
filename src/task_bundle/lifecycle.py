@@ -1,7 +1,11 @@
 from pathlib import Path
 from typing import NoReturn
 
+from task_bundle import __version__
+from task_bundle.database import Database
 from task_bundle.errors import ErrorCode, ErrorContext, TaskBundleError
+from task_bundle.image.models import InitResult
+from task_bundle.image.service import InitOptions, InitService
 
 
 def _pending(command: str) -> NoReturn:
@@ -17,8 +21,10 @@ def _pending(command: str) -> NoReturn:
     )
 
 
-def init_bundle(bundle: Path) -> NoReturn:
-    _pending("init")
+def init_bundle(bundle: Path, options: InitOptions | None = None) -> InitResult:
+    database = Database(Path.home() / ".task-bundle" / "task.db")
+    service = InitService(database=database, cli_version=__version__)
+    return service.run(bundle, options or InitOptions())
 
 
 def validate_bundle(bundle: Path) -> NoReturn:

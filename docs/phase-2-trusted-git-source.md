@@ -14,7 +14,8 @@ tags, abbreviations, and revision expressions are not accepted as input.
 Git runs with an explicit minimal environment. Interactive prompting and
 askpass are disabled, global and system configuration are ignored, credentials
 and host secrets are not forwarded, hooks are disabled, submodule recursion is
-off, and all protocols except HTTPS are denied.
+off, HTTP redirects are limited to Git's initial redirect policy, and all
+protocols except HTTPS are denied.
 
 ## Verification and materialisation
 
@@ -24,12 +25,19 @@ object is itself a commit, confirms the resolved commit matches exactly,
 records the tree SHA, and rejects mode `160000` gitlinks regardless of whether
 `.gitmodules` exists.
 
-The verified commit is exported with `git archive`. Archive members are
-validated before manual extraction: absolute and traversing paths, hard links,
-devices, FIFOs, special entries, `.git`, and entries nested beneath symlinks are
-rejected. Relative symlinks are supported only when their lexical target stays
-within the source root. Symlinks are created last and are never dereferenced by
-the extractor or manifest builder.
+The verified recursive tree listing is parsed before any filesystem write.
+Absolute, traversing, non-normalized, control-character, non-UTF-8, backslash,
+`.git`, duplicate, file-versus-directory, and case-colliding paths are
+rejected. Only regular blobs, executable blobs, and symlink blobs are
+supported. Relative UTF-8 symlinks are accepted only when their lexical target
+stays within the source root.
+
+Materialisation reads every accepted blob directly with `git cat-file blob`
+and writes canonical `0644` or `0755` files. This deliberately avoids both
+`git archive` transformations (`export-ignore` and `export-subst`) and
+working-tree transformations (`ident`, EOL conversion, and configured
+filters). The materialised bytes therefore correspond to the verified Git
+tree rather than an archive or checkout view of it.
 
 ## Identity and persistence
 
@@ -46,8 +54,8 @@ creation timestamp. Metadata can be atomically persisted at:
 - `.task/source.manifest.json`
 
 The materialisation API is a context manager. Its bare repository, isolated
-HOME/config, archive, and extracted source tree are removed after success,
-exceptions, and interruptions.
+HOME/config, blob buffers, and materialised source tree are removed after
+success, exceptions, and interruptions.
 
 ## Limitations
 

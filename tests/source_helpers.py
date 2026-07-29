@@ -24,6 +24,7 @@ def create_git_repository(
     symlink: bool = True,
     gitlink: bool = False,
     gitmodules_only: bool = False,
+    export_attributes: bool = False,
 ) -> GitFixture:
     root.mkdir()
     _git(root, "init", "-q")
@@ -38,9 +39,24 @@ def create_git_repository(
         (root / "tool-link").symlink_to("bin/tool")
     if gitmodules_only:
         (root / ".gitmodules").write_text(
-            "[submodule \"unused\"]\n\tpath = unused\n",
+            '[submodule "unused"]\n\tpath = unused\n',
             encoding="utf-8",
         )
+    if export_attributes:
+        (root / ".gitattributes").write_text(
+            "archive-only.txt export-ignore\n"
+            "literal-format.txt export-subst\n"
+            "literal-ident.txt ident\n"
+            "literal-lf.txt eol=crlf\n",
+            encoding="utf-8",
+        )
+        (root / "archive-only.txt").write_text("must remain\n", encoding="utf-8")
+        (root / "literal-format.txt").write_text(
+            "$Format:%H$\n",
+            encoding="utf-8",
+        )
+        (root / "literal-ident.txt").write_text("$Id$\n", encoding="utf-8")
+        (root / "literal-lf.txt").write_bytes(b"line\n")
     _git(root, "add", "-A")
     _git(root, "commit", "-q", "-m", "fixture")
     commit = _git(root, "rev-parse", "HEAD")
@@ -81,6 +97,21 @@ class LocalFetchGitRunner:
             error_code=error_code,
             phase=phase,
             description=description,
+        )
+
+    def write_blob(
+        self,
+        *,
+        object_repository: Path,
+        object_id: str,
+        destination: Path,
+        timeout_seconds: int,
+    ) -> None:
+        self.delegate.write_blob(
+            object_repository=object_repository,
+            object_id=object_id,
+            destination=destination,
+            timeout_seconds=timeout_seconds,
         )
 
 
