@@ -1,0 +1,47 @@
+schema_version: "1"
+task:
+  id: submission-hello-answer
+  title: Add the requested answer file
+repository:
+  url: https://github.com/octocat/Hello-World.git
+  commit: 7fd1a60b01f91b314f59955a4e4d4e80d8edf11d
+  submodules: false
+public:
+  description: public/description.md
+  requirements: public/requirements.md
+  interface: public/interface.md
+environment:
+  type: dockerfile
+  dockerfile: environment/Dockerfile
+  context: environment/context
+  platform: linux/amd64
+  build:
+    timeout_seconds: 900
+    network: true
+  runtime:
+    working_directory: /workspace/repo
+    user: "1000:1000"
+    network: none
+    timeout_seconds: 180
+    cpus: 1
+    memory_mb: 512
+    pids_limit: 64
+    read_only_root: true
+    tmpfs:
+      - /tmp:size=64m
+evaluation:
+  test_patch: evaluation/hidden/test.patch
+  golden_patch: evaluation/hidden/golden.patch
+  runner:
+    command:
+      - python
+      - /evaluation/harness/run-tests.py
+    result_file: /evaluation/output/results.json
+    result_schema_version: "1"
+  pass_to_pass:
+    - selector: synthetic::readme
+  fail_to_pass:
+    - selector: synthetic::answer
+      baseline_statuses:
+        - failed
+  repeat: 1

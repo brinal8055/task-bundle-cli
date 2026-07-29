@@ -1,0 +1,65 @@
+schema_version: "1"
+task:
+  id: swebench-pro-openlibrary-runeberg
+  title: Expose Project Runeberg identifiers in OpenLibrary work metadata
+provenance:
+  dataset: ScaleAI/SWE-bench_Pro
+  dataset_revision: 7ab5114912baf22bb098818e604c02fe7ad2c11f
+  instance_id: instance_internetarchive__openlibrary-e010b2a13697de70170033902ba2e27a1e1acbe9-v0f5aece3601a5b4419f7ccec1dbda2071be28ee4
+  source_record_sha256: sha256:c48f1cee513d00ebe7093c3e6c08590d971f1827b72a4e7cce7140acad396d3a
+  imported_at: 2026-07-29T00:00:00Z
+repository:
+  url: https://github.com/internetarchive/openlibrary.git
+  commit: b70f9abab445676042e5c300dcf5dd8eac4afd18
+  submodules: false
+public:
+  description: public/description.md
+  requirements: public/requirements.md
+  interface: public/interface.md
+environment:
+  type: dockerfile
+  dockerfile: environment/Dockerfile
+  context: environment/context
+  platform: linux/amd64
+  build:
+    timeout_seconds: 3600
+    network: false
+    no_cache: false
+  runtime:
+    working_directory: /workspace/repo
+    user: "1000:1000"
+    network: none
+    timeout_seconds: 600
+    cpus: 2
+    memory_mb: 4096
+    pids_limit: 256
+    read_only_root: true
+    tmpfs:
+      - /tmp:size=1g
+evaluation:
+  test_patch: evaluation/hidden/test.patch
+  golden_patch: evaluation/hidden/golden.patch
+  prepare:
+    command:
+      - /evaluation/harness/prepare.sh
+    network: false
+  runner:
+    command:
+      - python
+      - /evaluation/harness/run-tests.py
+    result_file: /evaluation/output/results.json
+    result_schema_version: "1"
+  pass_to_pass:
+    - selector: openlibrary/plugins/worksearch/tests/test_worksearch.py::test_process_facet
+  fail_to_pass:
+    - selector: openlibrary/plugins/worksearch/tests/test_worksearch.py::test_get_doc
+      baseline_statuses:
+        - failed
+  repeat: 1
+solver:
+  timeout_seconds: 1800
+  max_patch_bytes: 5242880
+  max_changed_files: 200
+  max_context_bytes: 10485760
+  max_context_files: 500
+  allow_network: false

@@ -1,4 +1,5 @@
 import json
+import os
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -15,7 +16,11 @@ from task_bundle.models import (
 )
 from task_bundle.models import TestResult as ResultItem
 from task_bundle.models import TestStatus as ResultStatus
-from task_bundle.validation.result import classify_result, load_normalized_result
+from task_bundle.validation.result import (
+    MAX_RESULT_BYTES,
+    classify_result,
+    load_normalized_result,
+)
 
 
 def _plan(phase: EvaluationPhase = EvaluationPhase.BASELINE) -> EvaluationPlan:
@@ -227,6 +232,47 @@ def test_result_loader_rejects_symlink_result(tmp_path: Path) -> None:
     target.write_text(_result().model_dump_json(), encoding="utf-8")
     path = tmp_path / "results.json"
     path.symlink_to(target)
+
+    with pytest.raises(TaskBundleError) as caught:
+        load_normalized_result(
+            path,
+            phase=EvaluationPhase.BASELINE,
+            repeat_index=1,
+        )
+
+    assert caught.value.code == ErrorCode.TEST_RESULT_SCHEMA_ERROR
+
+
+def test_result_loader_rejects_fifo_and_oversized_result(tmp_path: Path) -> None:
+    fifo = tmp_path / "fifo.json"
+    os.mkfifo(fifo)
+    with pytest.raises(TaskBundleError) as special:
+        load_normalized_result(
+            fifo,
+            phase=EvaluationPhase.BASELINE,
+            repeat_index=1,
+        )
+    assert special.value.code == ErrorCode.TEST_RESULT_SCHEMA_ERROR
+
+    oversized = tmp_path / "oversized.json"
+    with oversized.open("wb") as output:
+        output.truncate(MAX_RESULT_BYTES + 1)
+    with pytest.raises(TaskBundleError) as too_large:
+        load_normalized_result(
+            oversized,
+            phase=EvaluationPhase.BASELINE,
+            repeat_index=1,
+        )
+    assert too_large.value.code == ErrorCode.TEST_RESULT_TOO_LARGE
+
+
+def test_result_loader_rejects_unexpected_absolute_artifact_field(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "results.json"
+    raw = _result().model_dump(mode="json")
+    raw["artifact_path"] = "/etc/passwd"
+    path.write_text(json.dumps(raw), encoding="utf-8")
 
     with pytest.raises(TaskBundleError) as caught:
         load_normalized_result(

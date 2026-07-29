@@ -221,8 +221,7 @@ def test_command_solver_is_non_root_isolated_and_stages_only_public_context(
     )
     seed_text = "\n".join(seed)
     assert "find /workspace -type f -exec chmod a+rw" in seed_text
-    assert "find /task -type d -exec chmod 0555" in seed_text
-    assert "find /task -type f ! -perm -111 -exec chmod 0444" in seed_text
+    assert "test ! -w /task/public/description.md" in seed_text
     assert any(command[:2] == ("rm", "--force") for command in runner.commands)
     assert sum(command[:3] == ("volume", "rm", "--force") for command in runner.commands) == 2
 

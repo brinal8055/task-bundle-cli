@@ -343,6 +343,7 @@ class RunService:
                 )
                 solver_recorded = True
                 self.run_store.event(command_id, "SOLVER_COMPLETED")
+                self.run_store.event(command_id, "WORKSPACE_EXPORT_VALIDATED")
                 candidate, patch = self._finalize_candidate(
                     bundle=bundle,
                     lock_tree_sha=lock.source.tree_sha,
@@ -352,8 +353,17 @@ class RunService:
                 )
                 self.run_store.event(
                     command_id,
-                    "CANDIDATE_FINALIZED",
+                    "CANDIDATE_TREE_CONSTRUCTED",
+                    {"candidate_tree_sha": candidate.candidate_tree_sha},
+                )
+                self.run_store.event(
+                    command_id,
+                    "CANDIDATE_PATCH_GENERATED",
                     {"candidate_patch_sha256": candidate.candidate_patch_sha256},
+                )
+                self.run_store.event(
+                    command_id,
+                    "CANDIDATE_PATCH_ROUNDTRIP_VERIFIED",
                 )
                 hidden_patch = validate_patch(
                     bundle.root / bundle.task.evaluation.test_patch,
@@ -387,6 +397,11 @@ class RunService:
                     command_id,
                     candidate=candidate,
                     patch_policy=PatchPolicyStatus.ACCEPTED,
+                )
+                self.run_store.event(
+                    command_id,
+                    "CANDIDATE_FINALIZED",
+                    {"candidate_patch_sha256": candidate.candidate_patch_sha256},
                 )
                 self.run_store.event(command_id, "CANDIDATE_EVALUATOR_STARTED")
                 candidate_summary, candidate_record = self._run_evaluation(

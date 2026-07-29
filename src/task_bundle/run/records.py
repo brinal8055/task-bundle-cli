@@ -1,6 +1,9 @@
 import json
 import sqlite3
+import stat
 from datetime import UTC, datetime
+from pathlib import Path, PurePosixPath
+from typing import NoReturn
 
 from task_bundle.database import Database
 from task_bundle.errors import ErrorCode, ErrorContext, TaskBundleError
@@ -383,7 +386,7 @@ class RunStore:
             ),
             tests=tuple(_row_dict(row) for row in tests),
             events=tuple(_event_dict(row) for row in events),
-            artifacts=tuple(_row_dict(row) for row in artifacts),
+            artifacts=_safe_artifact_records(command, artifacts),
         )
 
     def _write(self, statement: str, parameters: tuple[object, ...]) -> None:
@@ -427,6 +430,78 @@ def _event_dict(row: sqlite3.Row) -> dict[str, object]:
 def _test_matched(row: sqlite3.Row) -> bool:
     expected = json.loads(row["expected_status"])
     return row["actual_status"] in expected
+
+
+def _safe_artifact_records(
+    command: sqlite3.Row,
+    rows: tuple[sqlite3.Row, ...] | list[sqlite3.Row],
+) -> tuple[dict[str, object], ...]:
+    if not rows:
+        return ()
+    bundle_value = command["bundle_path"]
+    root_value = command["artifact_root"]
+    if not isinstance(bundle_value, str) or not isinstance(root_value, str):
+        _unsafe_artifact_path("artifact root metadata is missing")
+    logical_root = _normalized_artifact_path(root_value)
+    if not logical_root.parts or logical_root.parts[0] != "artifacts":
+        _unsafe_artifact_path("artifact root is outside the bundle artifact directory")
+    bundle_root = Path(bundle_value)
+    physical_root = bundle_root / Path(logical_root.as_posix())
+    _artifact_path_state(bundle_root, logical_root)
+    records: list[dict[str, object]] = []
+    for row in rows:
+        value = row["relative_path"]
+        if not isinstance(value, str):
+            _unsafe_artifact_path("artifact path is not text")
+        logical = _normalized_artifact_path(value)
+        try:
+            remainder = logical.relative_to(logical_root)
+        except ValueError:
+            _unsafe_artifact_path("artifact path is outside its command artifact root")
+        record = _row_dict(row)
+        record["state"] = _artifact_path_state(physical_root, remainder)
+        records.append(record)
+    return tuple(records)
+
+
+def _normalized_artifact_path(value: str) -> PurePosixPath:
+    logical = PurePosixPath(value)
+    if (
+        not value
+        or logical.is_absolute()
+        or ".." in logical.parts
+        or logical.as_posix() != value
+    ):
+        _unsafe_artifact_path("artifact path is absolute, traversing, or non-normalized")
+    return logical
+
+
+def _artifact_path_state(root: Path, relative: PurePosixPath) -> str:
+    current = root
+    for component in relative.parts:
+        current /= component
+        try:
+            metadata = current.lstat()
+        except FileNotFoundError:
+            return "missing"
+        except OSError as error:
+            _unsafe_artifact_path(str(error))
+        if stat.S_ISLNK(metadata.st_mode):
+            _unsafe_artifact_path("artifact path contains a symlink")
+    return "present"
+
+
+def _unsafe_artifact_path(actual: str) -> NoReturn:
+    raise TaskBundleError(
+        ErrorCode.DATABASE_ERROR,
+        "Persisted artifact path is unsafe.",
+        ErrorContext(
+            phase="show",
+            expected="A normalized command-owned path below its artifact root",
+            actual=actual,
+            corrective_action="Repair or remove the corrupted command artifact record.",
+        ),
+    )
 
 
 def _evaluation_dict(

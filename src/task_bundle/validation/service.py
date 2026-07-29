@@ -112,6 +112,10 @@ class ValidationService:
                 command_id=command_id,
                 store=self.command_store,
             )
+            self.command_store.set_artifact_root(
+                command_id,
+                writer.root.relative_to(bundle.root).as_posix(),
+            )
             writer.write_json(
                 "command.json",
                 {

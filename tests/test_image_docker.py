@@ -74,6 +74,28 @@ def test_sanitized_docker_environment_drops_host_and_secrets(
     assert environment["HOME"] == str(tmp_path / "home")
 
 
+def test_sanitized_docker_environment_stages_only_buildx_plugin(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    host_home = tmp_path / "host-home"
+    (host_home / ".docker/cli-plugins").mkdir(parents=True)
+    plugin = _executable(
+        host_home / ".docker/cli-plugins/docker-buildx",
+        "#!/bin/sh\nexit 0\n",
+    )
+    (host_home / ".docker/config.json").write_text('{"auths":{"secret":{}}}\n')
+    monkeypatch.setenv("HOME", str(host_home))
+    isolated = tmp_path / "isolated"
+
+    sanitized_docker_environment(isolated)
+
+    staged = isolated / ".docker/cli-plugins/docker-buildx"
+    assert staged.is_symlink()
+    assert staged.resolve() == plugin
+    assert not (isolated / ".docker/config.json").exists()
+
+
 def test_docker_runner_never_invokes_a_shell_and_redacts_values(tmp_path: Path) -> None:
     executable = _executable(
         tmp_path / "docker",

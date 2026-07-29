@@ -16,6 +16,10 @@ Baseline and golden validation is documented in
 [Phase 4: Baseline and Golden Validation](docs/phase-4-baseline-golden-validation.md).
 Solver and candidate evaluation is documented in
 [Phase 5: Solver and Candidate Evaluation](docs/phase-5-solver-candidate-evaluation.md).
+Final verification and the real benchmark are documented in
+[Phase 6: Security Verification and Real Benchmark](docs/phase-6-security-real-benchmark.md).
+See the reviewer-focused [design](docs/DESIGN.md), [security model](SECURITY.md),
+and [end-to-end demo](DEMO.md).
 
 ## Roadmap
 
@@ -25,7 +29,7 @@ Solver and candidate evaluation is documented in
 - Phase 3 — Task image construction and task init (complete after focused audit)
 - Phase 4 — Baseline and golden validation (complete)
 - Phase 5 — Solver and candidate evaluation (complete)
-- Phase 6 — Security verification and real benchmark (not implemented)
+- Phase 6 — Security verification and real benchmark (complete)
 
 ## Development
 

@@ -189,6 +189,7 @@ def sanitized_docker_environment(home: Path) -> dict[str, str]:
             "Check temporary-directory permissions.",
             "docker-preflight",
         )
+    _stage_docker_cli_plugin(home, "docker-buildx")
     environment = {
         "PATH": os.environ.get("PATH", os.defpath),
         "HOME": str(home),
@@ -200,6 +201,40 @@ def sanitized_docker_environment(home: Path) -> dict[str, str]:
     if temporary:
         environment["TMPDIR"] = temporary
     return environment
+
+
+def _stage_docker_cli_plugin(home: Path, name: str) -> None:
+    candidates = (
+        Path.home() / ".docker" / "cli-plugins" / name,
+        Path("/usr/local/lib/docker/cli-plugins") / name,
+        Path("/usr/local/libexec/docker/cli-plugins") / name,
+        Path("/usr/libexec/docker/cli-plugins") / name,
+    )
+    plugin = next(
+        (
+            candidate
+            for candidate in candidates
+            if candidate.is_file() and os.access(candidate, os.X_OK)
+        ),
+        None,
+    )
+    if plugin is None:
+        return
+    destination = home / ".docker" / "cli-plugins" / name
+    try:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        destination.symlink_to(plugin.resolve())
+    except FileExistsError:
+        return
+    except OSError as error:
+        _docker_error(
+            ErrorCode.DOCKER_NOT_AVAILABLE,
+            "Docker CLI plugin could not be staged in the isolated configuration.",
+            f"A usable isolated {name} plugin",
+            str(error),
+            "Check Docker CLI plugin permissions.",
+            "docker-preflight",
+        )
 
 
 def _execute(

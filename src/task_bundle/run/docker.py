@@ -33,9 +33,8 @@ _SEED_SCRIPT = (
     "cp -a /opt/task/repo/. /workspace/repo/; "
     "find /workspace -type d -exec chmod 0777 {} +; "
     "find /workspace -type f -exec chmod a+rw {} +; "
-    "find /task -type d -exec chmod 0555 {} +; "
-    "find /task -type f -perm -111 -exec chmod 0555 {} +; "
-    "find /task -type f ! -perm -111 -exec chmod 0444 {} +"
+    "test -r /task/public/description.md; "
+    "test ! -w /task/public/description.md"
 )
 _CONTAINER_ID_LENGTHS = range(12, 65)
 

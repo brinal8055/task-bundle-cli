@@ -29,7 +29,13 @@ class CommandStore:
                 id, task_id, command_type, command_status, started_at, bundle_path
             ) VALUES (?, ?, ?, 'running', ?, ?)
             """,
-            (command_id, task_id, command_type, timestamp, str(bundle_path)),
+            (
+                command_id,
+                task_id,
+                command_type,
+                timestamp,
+                str(bundle_path.resolve(strict=False)),
+            ),
         )
         self.event(command_id, "COMMAND_STARTED", {"command_type": command_type})
 
@@ -43,6 +49,12 @@ class CommandStore:
         self._write(
             "UPDATE commands SET task_id = ?, bundle_digest = ? WHERE id = ?",
             (task_id, bundle_digest, command_id),
+        )
+
+    def set_artifact_root(self, command_id: str, relative_path: str) -> None:
+        self._write(
+            "UPDATE commands SET artifact_root = ? WHERE id = ?",
+            (relative_path, command_id),
         )
 
     def event(

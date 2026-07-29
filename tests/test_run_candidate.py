@@ -40,6 +40,10 @@ def _trees(tmp_path: Path) -> tuple[Path, Path, str]:
     (repository / "keep.txt").write_text("keep\n")
     (repository / "delete.txt").write_text("delete\n")
     (repository / "binary.dat").write_bytes(b"\x00\xffold")
+    (repository / "directory").mkdir()
+    (repository / "directory/remove.txt").write_text("remove directory\n")
+    (repository / "file-to-link").write_text("regular\n")
+    (repository / "link-to-file").symlink_to("keep.txt")
     tool = repository / "tool"
     tool.write_text("#!/bin/sh\nexit 0\n")
     _git(repository, "init", "-q")
@@ -50,7 +54,12 @@ def _trees(tmp_path: Path) -> tuple[Path, Path, str]:
     tree = _git(repository, "rev-parse", "HEAD^{tree}")
     baseline = tmp_path / "baseline"
     candidate = tmp_path / "candidate"
-    shutil.copytree(repository, baseline, ignore=shutil.ignore_patterns(".git"))
+    shutil.copytree(
+        repository,
+        baseline,
+        ignore=shutil.ignore_patterns(".git"),
+        symlinks=True,
+    )
     shutil.copytree(baseline, candidate, symlinks=True)
     return baseline, candidate, tree
 
@@ -65,6 +74,13 @@ def test_candidate_builder_uses_raw_trees_binary_diff_and_round_trip(
     (candidate / "binary.dat").write_bytes(b"\x00\xfenew\x80")
     (candidate / "tool").chmod(0o755)
     (candidate / "tool-link").symlink_to("tool")
+    (candidate / "empty.txt").write_bytes(b"")
+    (candidate / "directory/remove.txt").unlink()
+    (candidate / "directory").rmdir()
+    (candidate / "file-to-link").unlink()
+    (candidate / "file-to-link").symlink_to("keep.txt")
+    (candidate / "link-to-file").unlink()
+    (candidate / "link-to-file").write_bytes(b"\xffregular")
     trusted = tmp_path / "trusted"
     trusted.mkdir()
 
@@ -82,7 +98,11 @@ def test_candidate_builder_uses_raw_trees_binary_diff_and_round_trip(
         "added.txt",
         "binary.dat",
         "delete.txt",
+        "directory/remove.txt",
+        "empty.txt",
+        "file-to-link",
         "keep.txt",
+        "link-to-file",
         "tool",
         "tool-link",
     }
@@ -194,6 +214,52 @@ def test_patch_policy_rejects_hidden_overlap_without_exposing_hidden_content(
     assert caught.value.code == ErrorCode.PATCH_CONFLICT
     assert caught.value.context.details == {"conflicting_paths": ["hidden_test.py"]}
     assert "secret assertion" not in caught.value.context.actual
+
+
+@pytest.mark.parametrize(
+    "candidate_path",
+    [
+        "Hidden_test.py",
+        "hidden_test.py.bak",
+        "nested/hidden_test.py",
+    ],
+)
+def test_patch_policy_hidden_path_matching_is_exact_and_case_sensitive(
+    tmp_path: Path,
+    candidate_path: str,
+) -> None:
+    patch = (
+        f"diff --git a/{candidate_path} b/{candidate_path}\n"
+        "--- /dev/null\n"
+        f"+++ b/{candidate_path}\n"
+        "@@ -0,0 +1 @@\n"
+        "+candidate\n"
+    ).encode()
+    hidden = (
+        b"diff --git a/hidden_test.py b/hidden_test.py\n"
+        b"--- /dev/null\n"
+        b"+++ b/hidden_test.py\n"
+        b"@@ -0,0 +1 @@\n+secret assertion\n"
+    )
+    root = tmp_path / "candidate"
+    destination = root / candidate_path
+    destination.parent.mkdir(parents=True)
+    destination.write_text("candidate\n")
+    candidate = CandidateTree(
+        baseline_tree_sha="a" * 40,
+        candidate_tree_sha="b" * 40,
+        candidate_patch_sha256="sha256:" + "c" * 64,
+        candidate_patch_size=len(patch),
+        changed_paths=(candidate_path,),
+    )
+
+    enforce_patch_policy(
+        candidate=candidate,
+        patch=patch,
+        candidate_manifest=_manifest(root),
+        hidden_patch=hidden,
+        solver=SolverConfig(),
+    )
 
 
 def test_candidate_round_trip_rejects_a_patch_that_does_not_rebuild_export(

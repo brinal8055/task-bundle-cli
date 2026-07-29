@@ -33,10 +33,10 @@ _SEED_SCRIPT = (
 )
 _PERMISSION_SCRIPT = (
     "set -eu; "
-    "find /evaluation/input /evaluation/harness -type d -exec chmod 0555 {} +; "
-    "find /evaluation/input -type f -exec chmod 0444 {} +; "
-    "find /evaluation/harness -type f -perm -111 -exec chmod 0555 {} +; "
-    "find /evaluation/harness -type f ! -perm -111 -exec chmod 0444 {} +; "
+    "test -r /evaluation/input/plan.json; "
+    "test -r /evaluation/input/test.patch; "
+    "test ! -w /evaluation/input/plan.json; "
+    "test ! -w /evaluation/input/test.patch; "
     "chmod 0755 /workspace /workspace/repo /evaluation/output"
 )
 _RUNTIME_PERMISSION_SCRIPT = (
