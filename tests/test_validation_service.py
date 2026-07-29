@@ -4,9 +4,10 @@ from pathlib import Path
 
 import pytest
 
+from task_bundle.bundle.loader import load_bundle
 from task_bundle.database import Database
 from task_bundle.errors import ErrorCode, ErrorContext, TaskBundleError
-from task_bundle.image.lock import LOCK_RELATIVE_PATH
+from task_bundle.image.lock import LOCK_RELATIVE_PATH, load_bundle_lock
 from task_bundle.image.service import InitOptions, InitService
 from task_bundle.models import (
     EvaluationPhase,
@@ -21,7 +22,11 @@ from task_bundle.validation.models import (
     EvaluatorExecution,
     ValidationStatus,
 )
-from task_bundle.validation.service import ValidationOptions, ValidationService
+from task_bundle.validation.service import (
+    ValidationOptions,
+    ValidationService,
+    create_validation_identity,
+)
 from tests.bundle_helpers import create_bundle, read_task, write_task
 from tests.image_helpers import FakeDockerRunner, StaticSourceFactory
 
@@ -254,7 +259,11 @@ def test_keep_containers_is_explicit_and_warns_about_hidden_inputs(
 
     assert not result.cleanup_complete
     assert len(result.retained_containers) == 2
-    assert "hidden tests" in result.warnings[0]
+    warning = result.warnings[0]
+    assert "hidden tests" in warning
+    assert "test selectors" in warning
+    assert "evaluation output" in warning
+    assert "golden-patch content" in warning
 
 
 def test_missing_lock_and_missing_image_are_configuration_errors(tmp_path: Path) -> None:
@@ -329,6 +338,37 @@ def test_validation_identity_is_deterministic_but_execution_is_not_cached(
     assert count == 2
 
 
+def test_matching_validation_requires_all_inputs_and_accepts_stronger_repeat(
+    tmp_path: Path,
+) -> None:
+    bundle_path, database, docker = _initialized(tmp_path)
+    backend = FakeEvaluationBackend(_status)
+    service = ValidationService(
+        database=database,
+        cli_version="test",
+        docker_factory=lambda home: docker,
+        backend_factory=lambda runner: backend,
+    )
+    service.run(bundle_path, ValidationOptions(repeat=1))
+    bundle = load_bundle(bundle_path)
+    lock = load_bundle_lock(bundle_path / LOCK_RELATIVE_PATH)
+    required = create_validation_identity(bundle, lock, 2)
+
+    assert service.validation_store.matching_success(required) is None
+
+    equal = service.run(bundle_path, ValidationOptions(repeat=2))
+    match = service.validation_store.matching_success(required)
+    assert match is not None
+    assert match.validation_id == equal.validation_id
+    assert match.repeat_count == 2
+
+    stronger = service.run(bundle_path, ValidationOptions(repeat=3))
+    match = service.validation_store.matching_success(required)
+    assert match is not None
+    assert match.validation_id == stronger.validation_id
+    assert match.repeat_count == 3
+
+
 def test_backend_failure_never_leaves_command_running(tmp_path: Path) -> None:
     bundle, database, docker = _initialized(tmp_path)
 
@@ -363,3 +403,54 @@ def test_backend_failure_never_leaves_command_running(tmp_path: Path) -> None:
         ).fetchone()
     assert command["command_status"] == "failed"
     assert (bundle / LOCK_RELATIVE_PATH).is_file()
+
+
+def test_baseline_evidence_survives_later_golden_infrastructure_failure(
+    tmp_path: Path,
+) -> None:
+    bundle, database, docker = _initialized(tmp_path)
+
+    class GoldenFailureBackend(FakeEvaluationBackend):
+        def run(self, request: EvaluationRequest) -> EvaluatorExecution:
+            if request.plan.phase == EvaluationPhase.GOLDEN:
+                raise TaskBundleError(
+                    ErrorCode.TEST_RUNNER_ERROR,
+                    "Golden runner failed.",
+                    ErrorContext(
+                        phase=request.plan.phase.value,
+                        expected="A completed golden harness",
+                        actual="simulated runner failure",
+                        corrective_action="Inspect golden artifacts.",
+                    ),
+                )
+            return super().run(request)
+
+    backend = GoldenFailureBackend(_status)
+    with pytest.raises(TaskBundleError):
+        ValidationService(
+            database=database,
+            cli_version="test",
+            docker_factory=lambda home: docker,
+            backend_factory=lambda runner: backend,
+        ).run(bundle, ValidationOptions())
+
+    with database.connect() as connection:
+        command = connection.execute(
+            """
+            SELECT id, command_status FROM commands
+            WHERE command_type = 'validate'
+            ORDER BY started_at DESC LIMIT 1
+            """
+        ).fetchone()
+        validation = connection.execute(
+            "SELECT outcome FROM validations WHERE command_id = ?",
+            (command["id"],),
+        ).fetchone()
+        evaluations = connection.execute(
+            "SELECT phase, outcome FROM evaluations WHERE command_id = ?",
+            (command["id"],),
+        ).fetchall()
+
+    assert command["command_status"] == "failed"
+    assert validation["outcome"] == ValidationStatus.INFRA_ERROR.value
+    assert [tuple(row) for row in evaluations] == [("baseline", "accepted")]

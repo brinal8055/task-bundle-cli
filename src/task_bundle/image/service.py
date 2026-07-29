@@ -57,6 +57,7 @@ from task_bundle.models import (
     BaseImageEnvironment,
     CommandStatus,
 )
+from task_bundle.source.persistence import write_source_metadata
 from task_bundle.source.service import (
     MaterializedSource,
     materialize_bundle_source,
@@ -227,6 +228,7 @@ class InitService:
                     "bundle-snapshot",
                 )
                 with self.source_factory(bundle) as source:
+                    write_source_metadata(bundle.root, source.resolved, source.manifest)
                     self.store.event(
                         command_id,
                         "SOURCE_MATERIALIZED",

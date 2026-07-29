@@ -16,6 +16,7 @@ def create_synthetic_validation_bundle(
     for directory in (
         "public",
         "evaluation/hidden",
+        "candidates",
     ):
         (bundle / directory).mkdir(parents=True, exist_ok=True)
     (source / "go.mod").write_text("module example.com/calculator\n\ngo 1.22\n")
@@ -34,6 +35,23 @@ def create_synthetic_validation_bundle(
     (bundle / "public/description.md").write_text("Correct calculator addition.\n")
     (bundle / "evaluation/hidden/test.patch").write_text(_hidden_test_patch())
     (bundle / "evaluation/hidden/golden.patch").write_text(_golden_patch())
+    (bundle / "candidates/golden.patch").write_text(_golden_patch())
+    (bundle / "candidates/partial.patch").write_text(_partial_patch())
+    (bundle / "candidates/regression.patch").write_text(_regression_patch())
+    (bundle / "candidates/malformed.patch").write_text("not a Git patch\n")
+    (bundle / "candidates/hidden-conflict.patch").write_text(
+        _hidden_conflict_patch()
+    )
+    solver_context = root / "command-solver"
+    solver_context.mkdir()
+    solver = solver_context / "solve.sh"
+    solver.write_text(_command_solver())
+    solver.chmod(0o755)
+    isolation_context = root / "hidden-isolation-solver"
+    isolation_context.mkdir()
+    isolation = isolation_context / "solve.sh"
+    isolation.write_text(_hidden_isolation_solver())
+    isolation.chmod(0o755)
     runner = bundle / "evaluation/run-tests.sh"
     runner.write_text(
         "#!/bin/sh\n"
@@ -128,6 +146,75 @@ diff --git a/calculator.go b/calculator.go
 -func Add(a, b int) int { return a - b }
 +func Add(a, b int) int { return a + b }
  func Subtract(a, b int) int { return a - b }
+"""
+
+
+def _partial_patch() -> str:
+    return """\
+diff --git a/calculator.go b/calculator.go
+--- a/calculator.go
++++ b/calculator.go
+@@ -3,2 +3,5 @@
+-func Add(a, b int) int { return a - b }
++func Add(a, b int) int {
++    if a < 0 || b < 0 { return a - b }
++    return a + b
++}
+ func Subtract(a, b int) int { return a - b }
+"""
+
+
+def _regression_patch() -> str:
+    return """\
+diff --git a/calculator.go b/calculator.go
+--- a/calculator.go
++++ b/calculator.go
+@@ -3,2 +3,2 @@
+-func Add(a, b int) int { return a - b }
+-func Subtract(a, b int) int { return a - b }
++func Add(a, b int) int { return a + b }
++func Subtract(a, b int) int { return a + b }
+"""
+
+
+def _hidden_conflict_patch() -> str:
+    return """\
+diff --git a/calculator_hidden_test.go b/calculator_hidden_test.go
+new file mode 100644
+--- /dev/null
++++ b/calculator_hidden_test.go
+@@ -0,0 +1 @@
++package calculator
+"""
+
+
+def _command_solver() -> str:
+    return """\
+#!/bin/sh
+set -eu
+sed '0,/return a - b }/s//return a + b }/' calculator.go > /tmp/calculator.go
+cp /tmp/calculator.go calculator.go
+"""
+
+
+def _hidden_isolation_solver() -> str:
+    return """\
+#!/bin/sh
+set -eu
+for forbidden in \
+    /evaluation/input \
+    /evaluation/harness \
+    /task/input/test.patch \
+    /task/input/golden.patch \
+    /task/selectors.json
+do
+    test ! -e "$forbidden"
+done
+if env | grep -E 'HIDDEN|SELECTOR|GOLDEN' >/dev/null; then
+    exit 70
+fi
+sed '0,/return a - b }/s//return a + b }/' calculator.go > /tmp/calculator.go
+cp /tmp/calculator.go calculator.go
 """
 
 

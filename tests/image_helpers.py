@@ -15,7 +15,7 @@ from task_bundle.source.validation import normalize_repository_url
 
 
 class StaticSourceFactory:
-    def __init__(self, root: Path) -> None:
+    def __init__(self, root: Path, *, tree_sha: str = "b" * 40) -> None:
         if not root.exists():
             root.mkdir()
             (root / "README.md").write_text("source\n", encoding="utf-8")
@@ -25,6 +25,7 @@ class StaticSourceFactory:
             tool.chmod(0o755)
             (root / "tool-link").symlink_to("bin/tool")
         self.root = root
+        self.tree_sha = tree_sha
         self.calls = 0
 
     def __call__(
@@ -43,7 +44,7 @@ class StaticSourceFactory:
             repository_url=normalize_repository_url(bundle.task.repository.url),
             requested_commit=bundle.task.repository.commit.lower(),
             resolved_commit=bundle.task.repository.commit.lower(),
-            tree_sha="b" * 40,
+            tree_sha=self.tree_sha,
             source_tree_digest=digest,
             source_entry_count=len(manifest.entries),
             source_total_bytes=sum(entry.size for entry in files),

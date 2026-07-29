@@ -46,6 +46,12 @@ class ValidationIdentity(StrictModel):
     repeat_count: int = Field(gt=0)
 
 
+class ValidationReference(StrictModel):
+    validation_id: str = Field(pattern=r"^val_[0-9a-f]{32}$")
+    command_id: str = Field(min_length=1)
+    repeat_count: int = Field(gt=0)
+
+
 class SelectorResult(StrictModel):
     group: TestGroup
     requested_selector: str = Field(min_length=1)

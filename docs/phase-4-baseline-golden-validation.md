@@ -59,18 +59,18 @@ non-normalized, `.git`, submodule, and escaping-symlink changes are rejected.
 ## Permissions and runtime boundary
 
 Evaluator inputs and harness files are root-owned. Directories and executable
-harness files are `0555`; other files are `0444`. Workspace and output storage
-are owned by the configured numeric runtime UID/GID. Fixed administrative
-seeding, permission, and patch operations run as container root with all
-capabilities dropped except `CHOWN`. Configured preparation and runner argv run
-as the non-root runtime user.
+harness files are `0555`; other files are `0444`. Fixed administrative seeding,
+permission, and patch operations run as container root with all capabilities
+dropped. Before test execution the administrative Git index is removed and only
+the workspace and output volumes are made writable. Configured preparation and
+runner argv run as the non-root runtime user with no retained capabilities.
 
 Each evaluator has:
 
 - network `none`;
 - read-only root filesystem;
 - CPU, memory, PID, and timeout limits from the locked runtime policy;
-- all capabilities dropped with only administrative `CHOWN` retained;
+- all capabilities dropped, including for administrative operations;
 - `no-new-privileges`;
 - configured tmpfs mounts;
 - no Docker socket, host credentials, SSH agent, bundle mount, or artifact
@@ -88,10 +88,17 @@ immutable `NormalizedResult` model. It requires timezone-aware ordered
 timestamps, known harness/test statuses, non-negative durations, and bounded
 messages. Missing, oversized, malformed, non-object, unsupported, or incomplete
 results are infrastructure failures; runner exit code alone is never trusted.
+The result and every existing parent below the controlled output root must be
+real filesystem entries rather than symlinks.
 
 Every requested selector must occur exactly once. Duplicate or missing
 requested selectors fail as incomplete infrastructure. Additional unrequested
 tests are retained by the task-owned result but cannot satisfy a selector.
+
+Candidate code in Phase 5 can attempt to spoof task-owned output while tests
+run. This boundary provides strict schema, path, size, harness-completion, and
+selector-completeness checks; it does not claim cryptographic separation
+between candidate code and harness output.
 
 Baseline accepts:
 
@@ -128,10 +135,13 @@ CLI exits are:
 
 ## Persistence and artifacts
 
-SQLite schema version 3 stores validation identity, repeat count, timestamps,
-per-repeat evaluation/container/storage identity, patch digests, cleanup state,
-and per-selector expected/actual statuses. Validation finalization and command
-completion share a transaction. Handled failures always finalize their command
+Phase 4 introduced SQLite schema version 3; schema version 4 retains these
+records while adding Phase 5 state. Validation rows store identity, repeat
+count, timestamps, per-repeat evaluation/container/storage identity, patch
+digests, cleanup state, and per-selector expected/actual statuses. Validation
+finalization and command completion share a transaction. If later golden
+infrastructure fails, completed baseline evidence is committed under an
+incomplete validation row. Handled failures always finalize their command
 record.
 
 Artifacts live under `artifacts/<task-id>/<command-id>/` and include the
@@ -143,7 +153,8 @@ atomically written, hashed, and registered.
 Evaluator containers and volumes are removed after all normal and exceptional
 outcomes. `--keep-containers` explicitly retains evaluator containers and
 volumes and emits a prominent warning because they contain hidden tests and,
-for golden phases, the golden patch.
+for golden phases, the golden patch. The warning also identifies retained
+selectors and evaluation output.
 
 ## CLI
 
@@ -156,5 +167,6 @@ task validate BUNDLE [--repeat N] [--keep-containers] [--json] [--no-colour]
 - Docker is required for real validation.
 - Runtime dependency downloads are unavailable because evaluator networking is
   disabled.
-- There is no solver execution, candidate evaluation, parallel validation,
-  validation cache, private-repository support, or SWE-bench Pro integration.
+- Solver execution and candidate evaluation are provided by Phase 5. There is
+  no parallel validation, cache, private-repository support, or SWE-bench Pro
+  integration.

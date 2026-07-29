@@ -72,6 +72,28 @@ def test_golden_patch_uses_phase_specific_error(tmp_path: Path) -> None:
     assert caught.value.code == ErrorCode.GOLDEN_PATCH_APPLY_ERROR
 
 
+def test_patch_rejects_rename_metadata_that_could_disagree_with_headers(
+    tmp_path: Path,
+) -> None:
+    patch = tmp_path / "rename.patch"
+    patch.write_text(
+        "diff --git a/old.txt b/new.txt\n"
+        "similarity index 100%\n"
+        "rename from old.txt\n"
+        "rename to new.txt\n",
+    )
+
+    with pytest.raises(TaskBundleError) as caught:
+        validate_patch(
+            patch,
+            phase=EvaluationPhase.BASELINE,
+            repeat_index=1,
+            golden=False,
+        )
+
+    assert caught.value.code == ErrorCode.TEST_PATCH_APPLY_ERROR
+
+
 def test_binary_patch_and_executable_mode_change_are_preserved(tmp_path: Path) -> None:
     repository = tmp_path / "repository"
     repository.mkdir()
@@ -101,6 +123,43 @@ def test_binary_patch_and_executable_mode_change_are_preserved(tmp_path: Path) -
 
     assert (target / "fixture.bin").read_bytes() == b"\x00\xfenew\x80\n"
     assert (target / "fixture.bin").stat().st_mode & 0o111
+
+
+def test_addition_and_deletion_apply_after_admin_creates_fresh_index(
+    tmp_path: Path,
+) -> None:
+    repository = tmp_path / "patch-source"
+    repository.mkdir()
+    (repository / "delete.txt").write_text("delete\n")
+    (repository / "keep.txt").write_text("keep\n")
+    _git(repository, "init", "-q")
+    _git(repository, "config", "user.name", "Task Bundle Tests")
+    _git(repository, "config", "user.email", "tests@example.invalid")
+    _git(repository, "add", "-A")
+    _git(repository, "commit", "-q", "-m", "baseline")
+    target = tmp_path / "image-source-without-git"
+    shutil.copytree(repository, target, ignore=shutil.ignore_patterns(".git"))
+    (repository / "delete.txt").unlink()
+    (repository / "added.txt").write_text("added\n")
+    _git(repository, "add", "--intent-to-add", "added.txt")
+    patch = tmp_path / "add-delete.patch"
+    patch.write_bytes(_git_bytes(repository, "diff", "--binary", "HEAD"))
+
+    validate_patch(
+        patch,
+        phase=EvaluationPhase.BASELINE,
+        repeat_index=1,
+        golden=False,
+    )
+    assert not (target / ".git").exists()
+    _git(target, "init", "-q")
+    _git(target, "config", "core.hooksPath", "/dev/null")
+    _git(target, "add", "-A")
+    _git(target, "apply", "--check", "--index", "--binary", str(patch))
+    _git(target, "apply", "--index", "--binary", str(patch))
+
+    assert (target / "added.txt").read_text() == "added\n"
+    assert not (target / "delete.txt").exists()
 
 
 def _git(root: Path, *args: str) -> None:

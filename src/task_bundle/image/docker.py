@@ -239,14 +239,24 @@ def _execute(
         except subprocess.TimeoutExpired as error:
             process.kill()
             process.wait()
+            stdout, stdout_truncated = _read_output(stdout_file, max_output_bytes)
+            stderr, stderr_truncated = _read_output(stderr_file, max_output_bytes)
             raise TaskBundleError(
                 timeout_code,
                 f"Docker timed out while attempting to {description}.",
                 ErrorContext(
                     phase=phase,
                     expected=f"Completion within {timeout_seconds} seconds",
-                    actual="The Docker process exceeded its timeout",
+                    actual=(
+                        "The Docker process exceeded its timeout. "
+                        f"stderr: {(stderr.strip() or 'no stderr')[:2000]}"
+                    ),
                     corrective_action="Review Docker daemon health and configured timeout.",
+                    details={
+                        "stdout": stdout,
+                        "stderr": stderr,
+                        "output_truncated": stdout_truncated or stderr_truncated,
+                    },
                 ),
             ) from error
         stdout, stdout_truncated = _read_output(stdout_file, max_output_bytes)

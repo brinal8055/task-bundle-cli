@@ -18,7 +18,7 @@ from task_bundle.models import (
 )
 from task_bundle.source.validation import validate_symlink_target
 from task_bundle.validation.models import EvaluationStatus, EvaluatorExecution
-from task_bundle.validation.patch import validate_patch
+from task_bundle.validation.patch import validate_patch, validate_patch_bytes
 from task_bundle.validation.result import load_normalized_result
 
 _KEEPER_SCRIPT = "trap 'exit 0' TERM INT; while :; do sleep 3600; done"
@@ -33,12 +33,18 @@ _SEED_SCRIPT = (
 )
 _PERMISSION_SCRIPT = (
     "set -eu; "
-    "chown -R 0:0 /evaluation/input /evaluation/harness; "
     "find /evaluation/input /evaluation/harness -type d -exec chmod 0555 {} +; "
     "find /evaluation/input -type f -exec chmod 0444 {} +; "
     "find /evaluation/harness -type f -perm -111 -exec chmod 0555 {} +; "
     "find /evaluation/harness -type f ! -perm -111 -exec chmod 0444 {} +; "
     "chmod 0755 /workspace /workspace/repo /evaluation/output"
+)
+_RUNTIME_PERMISSION_SCRIPT = (
+    "set -eu; "
+    "rm -rf /workspace/repo/.git; "
+    "find /workspace -type d -exec chmod 0777 {} +; "
+    "find /workspace -type f -exec chmod a+rw {} +; "
+    "chmod 0777 /evaluation/output"
 )
 _CONTAINER_ID_LENGTHS = range(12, 65)
 
@@ -51,6 +57,7 @@ class EvaluationRequest:
     command_id: str
     plan: EvaluationPlan
     keep_container: bool = False
+    candidate_patch: bytes | None = None
 
 
 class EvaluationBackend(Protocol):
@@ -98,6 +105,21 @@ class DockerEvaluator:
             if phase == EvaluationPhase.GOLDEN
             else None
         )
+        candidate_patch = request.candidate_patch
+        if phase == EvaluationPhase.CANDIDATE:
+            if candidate_patch is None:
+                raise AssertionError("Candidate evaluation requires a finalized patch")
+            validate_patch_bytes(
+                candidate_patch,
+                code=ErrorCode.CANDIDATE_EVALUATION_ERROR,
+                phase=phase,
+                repeat_index=repeat,
+                artifact=Path("solver/candidate.patch"),
+                max_bytes=request.bundle.task.solver.max_patch_bytes,
+                allow_empty=True,
+            )
+        elif candidate_patch is not None:
+            raise AssertionError("Validation phases cannot receive a candidate patch")
         try:
             for volume in (workspace, evaluation):
                 self._run(
@@ -157,7 +179,14 @@ class DockerEvaluator:
                 input_root.mkdir()
                 harness_root.mkdir()
                 output_root.mkdir()
-                self._stage(request, input_root, harness_root, test_patch, golden_patch)
+                self._stage(
+                    request,
+                    input_root,
+                    harness_root,
+                    test_patch,
+                    golden_patch,
+                    candidate_patch,
+                )
                 self._copy_into(container_id, input_root, "/evaluation/input", request)
                 self._copy_into(container_id, harness_root, "/evaluation/harness", request)
                 self._exec_root(
@@ -175,6 +204,14 @@ class DockerEvaluator:
                         ErrorCode.GOLDEN_PATCH_APPLY_ERROR,
                     )
                     patch_log += result.stdout + result.stderr
+                if candidate_patch:
+                    result = self._apply_patch(
+                        request,
+                        container_id,
+                        "/evaluation/input/candidate.patch",
+                        ErrorCode.CANDIDATE_EVALUATION_ERROR,
+                    )
+                    patch_log += result.stdout + result.stderr
                 result = self._apply_patch(
                     request,
                     container_id,
@@ -182,17 +219,19 @@ class DockerEvaluator:
                     ErrorCode.TEST_PATCH_APPLY_ERROR,
                 )
                 patch_log += result.stdout + result.stderr
-                self._verify_index(request, container_id)
-                self._exec_root(
+                self._verify_index(
                     request,
                     container_id,
                     (
-                        "chown",
-                        "-R",
-                        request.runtime_policy.user,
-                        "/workspace",
-                        "/evaluation/output",
+                        ErrorCode.CANDIDATE_EVALUATION_ERROR
+                        if phase == EvaluationPhase.CANDIDATE
+                        else ErrorCode.TEST_PATCH_APPLY_ERROR
                     ),
+                )
+                self._exec_root(
+                    request,
+                    container_id,
+                    ("/bin/sh", "-c", _RUNTIME_PERMISSION_SCRIPT),
                     ErrorCode.EVALUATOR_PERMISSION_ERROR,
                     "make evaluator workspace writable by the runtime user",
                 )
@@ -325,8 +364,6 @@ class DockerEvaluator:
             str(policy.pids_limit),
             "--cap-drop",
             "ALL",
-            "--cap-add",
-            "CHOWN",
             "--security-opt",
             "no-new-privileges",
             "--mount",
@@ -350,6 +387,7 @@ class DockerEvaluator:
         harness_root: Path,
         test_patch: bytes,
         golden_patch: bytes | None,
+        candidate_patch: bytes | None,
     ) -> None:
         plan = request.plan.model_dump_json(indent=2).encode() + b"\n"
         metadata = (
@@ -360,6 +398,8 @@ class DockerEvaluator:
         _write_staged(input_root / "test.patch", test_patch, 0o444)
         if golden_patch is not None:
             _write_staged(input_root / "golden.patch", golden_patch, 0o444)
+        if candidate_patch is not None:
+            _write_staged(input_root / "candidate.patch", candidate_patch, 0o444)
         excluded = {
             request.bundle.task.evaluation.test_patch,
             request.bundle.task.evaluation.golden_patch,
@@ -421,12 +461,17 @@ class DockerEvaluator:
             "apply trusted evaluation patch",
         )
 
-    def _verify_index(self, request: EvaluationRequest, container_id: str) -> None:
+    def _verify_index(
+        self,
+        request: EvaluationRequest,
+        container_id: str,
+        code: ErrorCode,
+    ) -> None:
         listed = self._exec_root(
             request,
             container_id,
             ("git", "-C", "/workspace/repo", "ls-files", "-s", "-z"),
-            ErrorCode.TEST_PATCH_APPLY_ERROR,
+            code,
             "verify patched Git index",
         )
         for record in listed.stdout.split("\0"):
@@ -436,7 +481,7 @@ class DockerEvaluator:
             mode = metadata.split(" ", 1)[0]
             if mode == "160000":
                 self._error(
-                    ErrorCode.TEST_PATCH_APPLY_ERROR,
+                    code,
                     "Evaluation patch introduced a submodule.",
                     path,
                     request,
@@ -447,7 +492,7 @@ class DockerEvaluator:
                 request,
                 container_id,
                 ("git", "-C", "/workspace/repo", "show", f":{path}"),
-                ErrorCode.TEST_PATCH_APPLY_ERROR,
+                code,
                 "inspect patched symlink",
             ).stdout
             try:
@@ -456,7 +501,7 @@ class DockerEvaluator:
                 validate_symlink_target(path, target)
             except (TaskBundleError, ValueError) as error:
                 self._error(
-                    ErrorCode.TEST_PATCH_APPLY_ERROR,
+                    code,
                     "Evaluation patch introduced an unsafe symlink.",
                     str(error),
                     request,
@@ -611,7 +656,27 @@ def _host_result_path(
             configured,
             request,
         )
-    return output_root / Path(relative.as_posix())
+    result_path = output_root / Path(relative.as_posix())
+    try:
+        root_metadata = output_root.lstat()
+        if not stat.S_ISDIR(root_metadata.st_mode):
+            raise OSError("exported evaluation output root is not a directory")
+        current = output_root
+        for component in relative.parts[:-1]:
+            current /= component
+            metadata = current.lstat()
+            if not stat.S_ISDIR(metadata.st_mode):
+                raise OSError(f"unsafe result path component: {component}")
+    except FileNotFoundError:
+        return result_path
+    except OSError as error:
+        DockerEvaluator._error(
+            ErrorCode.TEST_RESULT_SCHEMA_ERROR,
+            "Configured result file has an unsafe exported path component.",
+            str(error),
+            request,
+        )
+    return result_path
 
 
 def _copy_manifest_file(

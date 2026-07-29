@@ -10,7 +10,12 @@ def test_every_error_code_maps_to_a_stable_exit_code() -> None:
     assert exit_codes[ErrorCode.BUILD_CONFIG_ERROR] == 2
     assert exit_codes[ErrorCode.CONTAINER_ERROR] == 3
     assert exit_codes[ErrorCode.GOLDEN_VALIDATION_ERROR] == 4
+    assert exit_codes[ErrorCode.BASELINE_GUARDRAIL_FAILURE] == 4
+    assert exit_codes[ErrorCode.SOLVER_CONFIGURATION_ERROR] == 2
+    assert exit_codes[ErrorCode.SOLVER_CONTEXT_UNSAFE] == 2
+    assert exit_codes[ErrorCode.SOLVER_CREATE_ERROR] == 3
     assert exit_codes[ErrorCode.SOLVER_TIMEOUT] == 5
+    assert exit_codes[ErrorCode.WORKSPACE_EXPORT_UNSAFE] == 6
     assert exit_codes[ErrorCode.PATCH_CONFLICT] == 6
 
 

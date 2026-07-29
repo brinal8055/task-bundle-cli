@@ -10,6 +10,7 @@ from task_bundle import __version__, lifecycle
 from task_bundle.errors import TaskBundleError
 from task_bundle.image.models import InitResult
 from task_bundle.image.service import InitOptions
+from task_bundle.run.models import RunResult, ShowResult, SolverType
 from task_bundle.validation.models import ValidationResult, ValidationStatus
 from task_bundle.validation.service import ValidationOptions
 
@@ -79,6 +80,8 @@ def _invoke[ResultT](
         else:
             _render_error(error, output)
         raise typer.Exit(code=error.exit_code) from None
+    except KeyboardInterrupt:
+        raise typer.Exit(code=130) from None
 
 
 @app.command()
@@ -218,13 +221,160 @@ def _render_validation_result(result: ValidationResult, output: Console) -> None
         output.print(f"[yellow]Warning: {warning}[/yellow]")
 
 
-@app.command()
-def run(bundle: Annotated[Path, typer.Argument(help="Path to the task bundle.")]) -> None:
+@app.command(context_settings={"allow_extra_args": True, "ignore_unknown_options": True})
+def run(
+    ctx: typer.Context,
+    bundle: Annotated[Path, typer.Argument(help="Path to the task bundle.")],
+    solver: Annotated[
+        SolverType,
+        typer.Option("--solver", help="Solver type: noop, patch, or command."),
+    ],
+    patch: Annotated[
+        Path | None,
+        typer.Option("--patch", help="Candidate patch for the patch solver."),
+    ] = None,
+    solver_context: Annotated[
+        Path | None,
+        typer.Option(
+            "--solver-context",
+            help="Read-only context directory for the command solver.",
+        ),
+    ] = None,
+    keep_containers: Annotated[
+        bool,
+        typer.Option(
+            "--keep-containers",
+            help="Retain solver and evaluator containers for debugging.",
+        ),
+    ] = False,
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit a machine-readable JSON result."),
+    ] = False,
+    no_colour: Annotated[
+        bool,
+        typer.Option("--no-colour", help="Disable coloured output."),
+    ] = False,
+) -> None:
     """Run a solver and evaluate its candidate patch."""
-    _invoke(lifecycle.run_bundle, bundle)
+    output = Console(no_color=no_colour)
+    result = _invoke(
+        lifecycle.run_bundle,
+        bundle,
+        solver,
+        patch,
+        solver_context,
+        tuple(ctx.args),
+        keep_containers,
+        output=output,
+        json_errors=json_output,
+    )
+    if json_output:
+        typer.echo(result.model_dump_json(indent=2))
+    else:
+        _render_run_result(result, output)
+    if not result.resolved:
+        raise typer.Exit(code=1)
+
+
+def _render_run_result(result: RunResult, output: Console) -> None:
+    colour = "green" if result.resolved else "yellow"
+    label = "RESOLVED" if result.resolved else "UNRESOLVED"
+    output.print(f"[bold {colour}]Result: {label}[/bold {colour}]")
+    output.print(
+        "Baseline preflight: "
+        f"P2P {result.baseline_preflight.pass_to_pass_matched}/"
+        f"{result.baseline_preflight.pass_to_pass_total}, "
+        f"F2P {result.baseline_preflight.fail_to_pass_matched}/"
+        f"{result.baseline_preflight.fail_to_pass_total}"
+    )
+    output.print(
+        f"Solver: {result.solver.solver_type.value} ({result.solver.status.value})"
+    )
+    output.print(
+        "Candidate: "
+        f"P2P {result.candidate_summary.pass_to_pass_matched}/"
+        f"{result.candidate_summary.pass_to_pass_total}, "
+        f"F2P {result.candidate_summary.fail_to_pass_matched}/"
+        f"{result.candidate_summary.fail_to_pass_total}"
+    )
+    output.print(f"Changed files: {len(result.candidate_tree.changed_paths)}")
+    output.print(f"Patch: {result.candidate_tree.candidate_patch_sha256}")
+    output.print(f"Command: {result.command_id}")
+    output.print(f"Artifacts: {result.artifact_directory}")
+    for warning in result.warnings:
+        output.print(f"[yellow]Warning: {warning}[/yellow]")
 
 
 @app.command()
-def show(command_id: Annotated[str, typer.Argument(help="Stable command ID.")]) -> None:
-    """Show a persisted command and its lifecycle."""
-    _invoke(lifecycle.show_command, command_id)
+def show(
+    command_id: Annotated[str, typer.Argument(help="Stable command ID.")],
+    json_output: Annotated[
+        bool,
+        typer.Option("--json", help="Emit machine-readable command details."),
+    ] = False,
+    events: Annotated[
+        bool,
+        typer.Option("--events", help="Include ordered lifecycle events."),
+    ] = False,
+    tests: Annotated[
+        bool,
+        typer.Option("--tests", help="Include persisted per-selector results."),
+    ] = False,
+    no_colour: Annotated[
+        bool,
+        typer.Option("--no-colour", help="Disable coloured output."),
+    ] = False,
+) -> None:
+    """Show a persisted init, validate, or run command."""
+    output = Console(no_color=no_colour)
+    result = _invoke(
+        lifecycle.show_command,
+        command_id,
+        events,
+        tests,
+        output=output,
+        json_errors=json_output,
+    )
+    if json_output:
+        typer.echo(result.model_dump_json(indent=2))
+    else:
+        _render_show_result(result, output)
+
+
+def _render_show_result(result: ShowResult, output: Console) -> None:
+    command = result.command
+    output.print(f"[bold]Command {command['id']}[/bold]")
+    output.print(f"Type: {command['command_type']}")
+    output.print(f"Status: {command['command_status']}")
+    if command.get("evaluation_status") is not None:
+        output.print(f"Evaluation: {command['evaluation_status']}")
+    if command.get("resolved") is not None:
+        output.print(f"Resolved: {bool(command['resolved'])}")
+    if result.solver is not None:
+        output.print(
+            f"Solver: {result.solver['solver_type']} ({result.solver['status']})"
+        )
+        changed = json.loads(str(result.solver.get("changed_paths_json") or "[]"))
+        output.print(f"Changed files: {len(changed)}")
+        if result.solver.get("patch_digest") is not None:
+            output.print(f"Patch: {result.solver['patch_digest']}")
+    if result.evaluations:
+        for evaluation in result.evaluations:
+            output.print(
+                f"{str(evaluation['phase']).title()}: {evaluation['outcome']} "
+                f"({evaluation['matched_count']}/{evaluation['test_count']} matched)"
+            )
+    if command.get("artifact_root") is not None:
+        output.print(f"Artifacts: {command['artifact_root']}")
+    if result.events:
+        output.print("Events:")
+        for event in result.events:
+            output.print(f"  {event['created_at']}  {event['event_type']}")
+    if result.tests:
+        output.print("Tests:")
+        for test in result.tests:
+            output.print(
+                f"  {test['phase']} {test['requested_selector']}: "
+                f"{test['actual_status']}"
+            )

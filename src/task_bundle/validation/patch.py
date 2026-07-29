@@ -27,14 +27,35 @@ def validate_patch(
             repeat_index,
             path,
         )
-    if len(payload) > MAX_PATCH_BYTES:
+    validate_patch_bytes(
+        payload,
+        code=code,
+        phase=phase,
+        repeat_index=repeat_index,
+        artifact=path,
+        max_bytes=MAX_PATCH_BYTES,
+    )
+    return payload
+
+
+def validate_patch_bytes(
+    payload: bytes,
+    *,
+    code: ErrorCode,
+    phase: EvaluationPhase,
+    repeat_index: int,
+    artifact: Path,
+    max_bytes: int,
+    allow_empty: bool = False,
+) -> frozenset[str]:
+    if len(payload) > max_bytes:
         _patch_error(
             code,
             "Trusted patch exceeds the validation size limit.",
             f"{len(payload)} bytes",
             phase,
             repeat_index,
-            path,
+            artifact,
         )
     try:
         text = payload.decode("utf-8")
@@ -45,9 +66,11 @@ def validate_patch(
             str(error),
             phase,
             repeat_index,
-            path,
+            artifact,
         )
-    paths = _patch_paths(text, code, phase, repeat_index, path)
+    if allow_empty and not payload:
+        return frozenset()
+    paths = _patch_paths(text, code, phase, repeat_index, artifact)
     if not paths:
         _patch_error(
             code,
@@ -55,9 +78,9 @@ def validate_patch(
             "No diff paths were found.",
             phase,
             repeat_index,
-            path,
+            artifact,
         )
-    return payload
+    return frozenset(paths)
 
 
 def _patch_paths(
@@ -104,7 +127,14 @@ def _patch_paths(
                 )
             candidates = (fields[2], fields[3])
         elif line.startswith(("rename from ", "rename to ", "copy from ", "copy to ")):
-            candidates = (line.split(" ", 2)[2],)
+            _patch_error(
+                code,
+                "Patch rename and copy metadata is unsupported.",
+                line[:200],
+                phase,
+                repeat_index,
+                artifact,
+            )
         elif line.startswith(("--- ", "+++ ")):
             value = line[4:].split("\t", 1)[0]
             if value != "/dev/null":

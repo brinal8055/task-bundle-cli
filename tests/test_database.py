@@ -18,6 +18,12 @@ def test_database_migration_is_idempotent(tmp_path: Path) -> None:
             ).fetchall()
         }
         version = connection.execute("PRAGMA user_version").fetchone()[0]
+        command_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(commands)")
+        }
+        solver_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(solver_runs)")
+        }
 
     with database.connect():
         pass
@@ -32,6 +38,15 @@ def test_database_migration_is_idempotent(tmp_path: Path) -> None:
         "test_results",
         "artifacts",
     } <= tables
+    assert {"evaluation_status", "resolved", "artifact_root"} <= command_columns
+    assert {
+        "status",
+        "validation_key",
+        "container_id",
+        "candidate_tree_sha",
+        "patch_policy_status",
+        "cleaned_up",
+    } <= solver_columns
 
 
 def test_database_rolls_back_failed_transaction(tmp_path: Path) -> None:

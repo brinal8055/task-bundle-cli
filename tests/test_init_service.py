@@ -10,6 +10,10 @@ from task_bundle.database import Database
 from task_bundle.errors import ErrorCode, ErrorContext, TaskBundleError
 from task_bundle.image.lock import LOCK_RELATIVE_PATH, load_bundle_lock
 from task_bundle.image.service import InitOptions, InitService
+from task_bundle.source.persistence import (
+    SOURCE_MANIFEST_RELATIVE_PATH,
+    SOURCE_SNAPSHOT_RELATIVE_PATH,
+)
 from task_bundle.source.service import MaterializedSource
 from tests.bundle_helpers import create_bundle, read_task, write_task
 from tests.image_helpers import (
@@ -46,6 +50,8 @@ def test_init_builds_inspects_smokes_locks_and_records(tmp_path: Path) -> None:
     assert result.image_id == "sha256:" + f"{1:064x}"
     assert result.lock_path == LOCK_RELATIVE_PATH.as_posix()
     assert load_bundle_lock(bundle / LOCK_RELATIVE_PATH).image_id == result.image_id
+    assert (bundle / SOURCE_MANIFEST_RELATIVE_PATH).is_file()
+    assert (bundle / SOURCE_SNAPSHOT_RELATIVE_PATH).is_file()
     assert docker.context_top_level == ("Dockerfile", "env", "repo")
     assert "repo/README.md" in docker.context_paths
     assert not any("evaluation" in path or ".task" in path for path in docker.context_paths)

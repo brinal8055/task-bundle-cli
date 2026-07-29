@@ -3,7 +3,7 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 
 _MIGRATION_1 = """
 CREATE TABLE commands (
@@ -107,7 +107,32 @@ ALTER TABLE evaluations ADD COLUMN cleaned_up INTEGER;
 CREATE INDEX validations_validation_key_idx ON validations(validation_key);
 CREATE INDEX evaluations_validation_id_idx ON evaluations(validation_id);
 """
-_MIGRATIONS = (_MIGRATION_1, _MIGRATION_2, _MIGRATION_3)
+_MIGRATION_4 = """
+ALTER TABLE commands ADD COLUMN evaluation_status TEXT;
+ALTER TABLE commands ADD COLUMN resolved INTEGER;
+ALTER TABLE commands ADD COLUMN artifact_root TEXT;
+
+ALTER TABLE solver_runs ADD COLUMN status TEXT;
+ALTER TABLE solver_runs ADD COLUMN validation_key TEXT;
+ALTER TABLE solver_runs ADD COLUMN container_id TEXT;
+ALTER TABLE solver_runs ADD COLUMN started_at TEXT;
+ALTER TABLE solver_runs ADD COLUMN finished_at TEXT;
+ALTER TABLE solver_runs ADD COLUMN exit_code INTEGER;
+ALTER TABLE solver_runs ADD COLUMN timed_out INTEGER;
+ALTER TABLE solver_runs ADD COLUMN baseline_tree_sha TEXT;
+ALTER TABLE solver_runs ADD COLUMN candidate_tree_sha TEXT;
+ALTER TABLE solver_runs ADD COLUMN patch_policy_status TEXT;
+ALTER TABLE solver_runs ADD COLUMN workspace_export_status TEXT;
+ALTER TABLE solver_runs ADD COLUMN cleaned_up INTEGER;
+
+CREATE INDEX commands_command_type_idx ON commands(command_type);
+CREATE INDEX solver_runs_command_id_idx ON solver_runs(command_id);
+CREATE INDEX validations_reuse_idx ON validations(
+    bundle_digest, image_id, runtime_policy_digest, harness_digest,
+    selector_digest, test_patch_digest, golden_patch_digest, repeat_count
+);
+"""
+_MIGRATIONS = (_MIGRATION_1, _MIGRATION_2, _MIGRATION_3, _MIGRATION_4)
 
 
 class Database:

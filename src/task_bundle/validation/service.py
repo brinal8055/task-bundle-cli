@@ -85,6 +85,8 @@ class ValidationService:
         writer: ArtifactWriter | None = None
         runner: DockerRunner | None = None
         image_id: str | None = None
+        identity: ValidationIdentity | None = None
+        evaluations: list[EvaluationRecord] = []
         try:
             bundle = load_bundle(bundle_path)
             repeat = options.repeat or bundle.task.evaluation.repeat
@@ -125,7 +127,7 @@ class ValidationService:
                 },
                 "command",
             )
-            lock, runtime_policy = self._load_preconditions(bundle)
+            lock, runtime_policy = self.load_preconditions(bundle)
             image_id = lock.image_id
             writer.write_model(
                 "bundle.snapshot.json",
@@ -137,7 +139,7 @@ class ValidationService:
                 prefix="task-bundle-validation-"
             ) as runtime_name:
                 runner = self.docker_factory(Path(runtime_name) / "docker-home")
-                self._verify_locked_image(bundle, lock, runtime_policy, runner)
+                self.verify_locked_image(bundle, lock, runtime_policy, runner)
                 identity = create_validation_identity(bundle, lock, repeat)
                 writer.write_model(
                     "validation-identity.json",
@@ -145,7 +147,6 @@ class ValidationService:
                     "validation-identity",
                 )
                 backend = self.backend_factory(runner)
-                evaluations: list[EvaluationRecord] = []
                 baseline = self._run_phase(
                     bundle=bundle,
                     lock=lock,
@@ -181,8 +182,9 @@ class ValidationService:
                 )
                 warnings = (
                     (
-                        "Retained evaluator containers contain hidden tests and "
-                        "golden inputs; remove them after debugging."
+                        "Retained evaluator containers and volumes contain hidden tests, "
+                        "test selectors, evaluation output, and golden-patch content in "
+                        "golden evaluators; remove them after debugging."
                     ),
                 ) if retained else ()
                 result = ValidationResult(
@@ -219,6 +221,15 @@ class ValidationService:
                 self.validation_store.finish(result)
                 return result
         except TaskBundleError as error:
+            if identity is not None and evaluations:
+                with suppress(TaskBundleError):
+                    self.validation_store.record_incomplete(
+                        command_id=command_id,
+                        identity=identity,
+                        started_at=started_at,
+                        outcome=ValidationStatus.INFRA_ERROR.value,
+                        evaluations=tuple(evaluations),
+                    )
             self._record_failure(
                 command_id=command_id,
                 writer=writer,
@@ -228,6 +239,15 @@ class ValidationService:
             )
             raise
         except KeyboardInterrupt:
+            if identity is not None and evaluations:
+                with suppress(TaskBundleError):
+                    self.validation_store.record_incomplete(
+                        command_id=command_id,
+                        identity=identity,
+                        started_at=started_at,
+                        outcome="interrupted",
+                        evaluations=tuple(evaluations),
+                    )
             with suppress(TaskBundleError):
                 self.command_store.finish(
                     command_id,
@@ -250,7 +270,7 @@ class ValidationService:
                 )
             raise
 
-    def _load_preconditions(
+    def load_preconditions(
         self,
         bundle: LoadedBundle,
     ) -> tuple[BundleLock, RuntimePolicy]:
@@ -283,7 +303,7 @@ class ValidationService:
             ) from error
         return lock, create_runtime_policy(bundle.task.environment.runtime)
 
-    def _verify_locked_image(
+    def verify_locked_image(
         self,
         bundle: LoadedBundle,
         lock: BundleLock,
@@ -377,60 +397,17 @@ class ValidationService:
                 )
             )
             selectors = classify_result(execution.result, plan)
-            record = _evaluation_record(execution, selectors)
+            record = evaluation_record(execution, selectors)
             phase_records.append(record)
             records.append(record)
-            self._write_execution_artifacts(writer, prefix, execution, selectors)
-        summary = _phase_summary(phase, phase_records)
+            write_execution_artifacts(writer, prefix, execution, selectors)
+        summary = phase_summary(phase, phase_records)
         writer.write_model(
             f"{phase.value}/summary.json",
             summary,
             "evaluation-phase-summary",
         )
         return summary
-
-    def _write_execution_artifacts(
-        self,
-        writer: ArtifactWriter,
-        prefix: str,
-        execution: EvaluatorExecution,
-        selectors: tuple[SelectorResult, ...],
-    ) -> None:
-        writer.write_text(
-            f"{prefix}/patch-apply.log",
-            execution.patch_log,
-            "patch-apply-log",
-        )
-        writer.write_text(
-            f"{prefix}/prepare.stdout.log",
-            execution.prepare_stdout,
-            "prepare-stdout",
-        )
-        writer.write_text(
-            f"{prefix}/prepare.stderr.log",
-            execution.prepare_stderr,
-            "prepare-stderr",
-        )
-        writer.write_text(
-            f"{prefix}/runner.stdout.log",
-            execution.runner_stdout,
-            "runner-stdout",
-        )
-        writer.write_text(
-            f"{prefix}/runner.stderr.log",
-            execution.runner_stderr,
-            "runner-stderr",
-        )
-        writer.write_bytes(
-            f"{prefix}/results.json",
-            execution.raw_result,
-            "normalized-results",
-        )
-        writer.write_json(
-            f"{prefix}/classification.json",
-            [item.model_dump(mode="json") for item in selectors],
-            "selector-classification",
-        )
 
     def _record_failure(
         self,
@@ -489,6 +466,49 @@ class ValidationService:
             )
 
 
+def write_execution_artifacts(
+    writer: ArtifactWriter,
+    prefix: str,
+    execution: EvaluatorExecution,
+    selectors: tuple[SelectorResult, ...],
+) -> None:
+    writer.write_text(
+        f"{prefix}/patch-apply.log",
+        execution.patch_log,
+        "patch-apply-log",
+    )
+    writer.write_text(
+        f"{prefix}/prepare.stdout.log",
+        execution.prepare_stdout,
+        "prepare-stdout",
+    )
+    writer.write_text(
+        f"{prefix}/prepare.stderr.log",
+        execution.prepare_stderr,
+        "prepare-stderr",
+    )
+    writer.write_text(
+        f"{prefix}/runner.stdout.log",
+        execution.runner_stdout,
+        "runner-stdout",
+    )
+    writer.write_text(
+        f"{prefix}/runner.stderr.log",
+        execution.runner_stderr,
+        "runner-stderr",
+    )
+    writer.write_bytes(
+        f"{prefix}/results.json",
+        execution.raw_result,
+        "normalized-results",
+    )
+    writer.write_json(
+        f"{prefix}/classification.json",
+        [item.model_dump(mode="json") for item in selectors],
+        "selector-classification",
+    )
+
+
 def create_validation_identity(
     bundle: LoadedBundle,
     lock: BundleLock,
@@ -511,7 +531,7 @@ def create_validation_identity(
     )
 
 
-def _evaluation_record(
+def evaluation_record(
     execution: EvaluatorExecution,
     selectors: tuple[SelectorResult, ...],
 ) -> EvaluationRecord:
@@ -533,7 +553,7 @@ def _evaluation_record(
     )
 
 
-def _phase_summary(
+def phase_summary(
     phase: EvaluationPhase,
     records: list[EvaluationRecord],
 ) -> PhaseSummary:

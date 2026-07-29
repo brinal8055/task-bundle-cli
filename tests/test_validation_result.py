@@ -123,6 +123,7 @@ def test_missing_duplicate_and_global_failure_are_infrastructure_errors() -> Non
         missing,
         duplicate,
         _result(harness_status=HarnessStatus.COLLECTION_FAILED),
+        _result(harness_status=HarnessStatus.CRASHED),
     ):
         with pytest.raises(TaskBundleError) as caught:
             classify_result(result, _plan())
