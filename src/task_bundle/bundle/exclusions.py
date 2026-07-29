@@ -19,3 +19,10 @@ def is_generated_path(path: PurePosixPath) -> bool:
         path.suffix.lower() in EXCLUDED_FILE_SUFFIXES
         or path.name.startswith(ATOMIC_SNAPSHOT_PREFIX)
     )
+
+
+def is_runtime_owned_path(path: PurePosixPath) -> bool:
+    return any(
+        part in {".task", "artifacts", "generated-context", "generated-build-context"}
+        for part in path.parts
+    )

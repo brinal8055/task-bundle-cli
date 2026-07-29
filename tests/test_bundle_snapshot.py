@@ -181,6 +181,10 @@ def test_atomic_failure_preserves_existing_target(
         write_snapshot_atomic(create_snapshot(bundle, "0.1.1"), destination)
 
     assert caught.value.code == ErrorCode.SNAPSHOT_WRITE_ERROR
+    assert caught.value.context.details == {
+        "error_type": "OSError",
+        "error": "simulated failure",
+    }
     assert destination.read_bytes() == original_bytes
     assert list(destination.parent.glob(".bundle.snapshot.*.tmp")) == []
 

@@ -279,3 +279,123 @@ class BundleSnapshot(StrictModel):
         if paths != sorted(set(paths)):
             raise ValueError("input manifest paths must be sorted and unique")
         return self
+
+
+class SourceRequest(StrictModel):
+    repository_url: str
+    commit: str
+    timeout_seconds: PositiveInt = 300
+
+    @field_validator("repository_url")
+    @classmethod
+    def repository_url_must_be_public_https(cls, value: str) -> str:
+        from task_bundle.source.validation import normalize_repository_url
+
+        return normalize_repository_url(value)
+
+    @field_validator("commit")
+    @classmethod
+    def commit_must_be_full_sha(cls, value: str) -> str:
+        from task_bundle.source.validation import normalize_commit_sha
+
+        return normalize_commit_sha(value)
+
+
+class SourceFileEntry(StrictModel):
+    path: str = Field(min_length=1)
+    type: Literal["file"] = "file"
+    mode: Literal["0644", "0755"]
+    size: int = Field(ge=0)
+    sha256: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+
+    @field_validator("path")
+    @classmethod
+    def path_must_be_normalized(cls, value: str) -> str:
+        return _normalized_relative_posix_path(value)
+
+
+class SourceSymlinkEntry(StrictModel):
+    path: str = Field(min_length=1)
+    type: Literal["symlink"] = "symlink"
+    target: str = Field(min_length=1)
+
+    @field_validator("path")
+    @classmethod
+    def path_must_be_normalized(cls, value: str) -> str:
+        return _normalized_relative_posix_path(value)
+
+    @model_validator(mode="after")
+    def target_must_remain_inside_source(self) -> "SourceSymlinkEntry":
+        from task_bundle.source.validation import validate_symlink_target
+
+        validate_symlink_target(self.path, self.target)
+        return self
+
+
+SourceManifestEntry = Annotated[
+    SourceFileEntry | SourceSymlinkEntry,
+    Field(discriminator="type"),
+]
+
+
+class SourceManifest(StrictModel):
+    schema_version: Literal["1"] = "1"
+    entries: tuple[SourceManifestEntry, ...]
+
+    @model_validator(mode="after")
+    def entries_must_be_sorted_and_unique(self) -> "SourceManifest":
+        paths = [entry.path for entry in self.entries]
+        if paths != sorted(set(paths)):
+            raise ValueError("source manifest paths must be sorted and unique")
+        return self
+
+
+class ResolvedSource(StrictModel):
+    schema_version: Literal["1"] = "1"
+    repository_url: str
+    requested_commit: str = Field(pattern=r"^[0-9a-f]{40}$")
+    resolved_commit: str = Field(pattern=r"^[0-9a-f]{40}$")
+    tree_sha: str = Field(pattern=r"^[0-9a-f]{40}$")
+    source_tree_digest: str = Field(pattern=r"^sha256:[0-9a-f]{64}$")
+    source_entry_count: int = Field(ge=0)
+    source_total_bytes: int = Field(ge=0)
+    symlink_count: int = Field(ge=0)
+    executable_file_count: int = Field(ge=0)
+    git_executable: str = Field(min_length=1)
+    git_version: str = Field(min_length=1)
+    created_at: datetime
+
+    @field_validator("repository_url")
+    @classmethod
+    def repository_url_must_be_public_https(cls, value: str) -> str:
+        from task_bundle.source.validation import normalize_repository_url
+
+        return normalize_repository_url(value)
+
+    @field_validator("created_at")
+    @classmethod
+    def created_at_must_include_timezone(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("created_at must include a timezone")
+        return value.astimezone(UTC)
+
+    @model_validator(mode="after")
+    def resolved_commit_must_match_request(self) -> "ResolvedSource":
+        if self.resolved_commit != self.requested_commit:
+            raise ValueError("resolved commit must equal requested commit")
+        return self
+
+
+def _normalized_relative_posix_path(value: str) -> str:
+    path = PurePosixPath(value)
+    if (
+        path.is_absolute()
+        or ".." in path.parts
+        or "\\" in value
+        or path.as_posix() != value
+        or value in {"", "."}
+    ):
+        raise ValueError("path must be a normalized relative POSIX path")
+    if ".git" in path.parts:
+        raise ValueError(".git is not allowed in source manifests")
+    return value

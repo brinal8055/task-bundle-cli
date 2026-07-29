@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, NoReturn
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from task_bundle.bundle.loader import LoadedBundle
 from task_bundle.errors import ErrorCode, ErrorContext, TaskBundleError
@@ -41,11 +41,28 @@ def create_snapshot(
 
 
 def write_snapshot_atomic(snapshot: BundleSnapshot, destination: Path) -> None:
+    write_json_atomic(
+        snapshot,
+        destination,
+        error_code=ErrorCode.SNAPSHOT_WRITE_ERROR,
+        phase="snapshot-write",
+        message="Bundle snapshot could not be written atomically.",
+    )
+
+
+def write_json_atomic(
+    value: BaseModel,
+    destination: Path,
+    *,
+    error_code: ErrorCode,
+    phase: str,
+    message: str,
+) -> None:
     temporary: Path | None = None
     try:
         destination.parent.mkdir(parents=True, exist_ok=True)
         payload = json.dumps(
-            snapshot.model_dump(mode="json", exclude_none=False),
+            value.model_dump(mode="json", exclude_none=False),
             sort_keys=True,
             indent=2,
             ensure_ascii=False,
@@ -65,14 +82,15 @@ def write_snapshot_atomic(snapshot: BundleSnapshot, destination: Path) -> None:
         _fsync_directory(destination.parent)
     except OSError as error:
         raise TaskBundleError(
-            ErrorCode.SNAPSHOT_WRITE_ERROR,
-            "Bundle snapshot could not be written atomically.",
+            error_code,
+            message,
             ErrorContext(
-                phase="snapshot-write",
+                phase=phase,
                 expected="An atomic snapshot replacement",
                 actual=str(error),
                 corrective_action="Check destination permissions and available disk space.",
                 path=destination,
+                details={"error_type": type(error).__name__, "error": str(error)},
             ),
         ) from error
     finally:

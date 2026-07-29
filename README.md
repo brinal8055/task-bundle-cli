@@ -8,6 +8,18 @@ The implementation follows the canonical
 
 The completed secure bundle core is documented in
 [Phase 1: Secure Bundle Core](docs/phase-1-secure-bundle-core.md).
+Trusted source acquisition is documented in
+[Phase 2: Trusted Git Source Materialisation](docs/phase-2-trusted-git-source.md).
+
+## Roadmap
+
+- Phase 0 — Foundation
+- Phase 1 — Secure bundle core
+- Phase 2 — Trusted Git source materialisation
+- Phase 3 — Task image construction and task init
+- Phase 4 — Baseline and golden validation
+- Phase 5 — Solver and candidate evaluation
+- Phase 6 — Security verification and real benchmark
 
 ## Development
 

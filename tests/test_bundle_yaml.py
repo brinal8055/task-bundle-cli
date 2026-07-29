@@ -77,6 +77,24 @@ def test_unsafe_custom_tag_is_rejected(tmp_path: Path) -> None:
     assert caught.value.code == ErrorCode.BUNDLE_YAML_ERROR
 
 
+@pytest.mark.parametrize(
+    "content",
+    [
+        "defaults: &defaults\n  timeout: 10\nvalue: *defaults\n",
+        "defaults: &defaults\n  timeout: 10\nvalue:\n  <<: *defaults\n",
+    ],
+)
+def test_yaml_indirection_is_rejected(tmp_path: Path, content: str) -> None:
+    path = tmp_path / "task.yaml"
+    path.write_text(content, encoding="utf-8")
+
+    with pytest.raises(TaskBundleError) as caught:
+        load_yaml_mapping(path)
+
+    assert caught.value.code == ErrorCode.BUNDLE_YAML_ERROR
+    assert "anchors, aliases, and merge keys" in str(caught.value)
+
+
 def test_unknown_field_becomes_domain_error(
     tmp_path: Path, bundle_factory: BundleFactory
 ) -> None:

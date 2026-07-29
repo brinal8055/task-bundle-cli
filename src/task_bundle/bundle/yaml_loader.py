@@ -4,6 +4,7 @@ from typing import Any
 import yaml
 from yaml.constructor import ConstructorError
 from yaml.nodes import MappingNode
+from yaml.tokens import AliasToken, AnchorToken, ScalarToken
 
 from task_bundle.errors import ErrorCode, ErrorContext, TaskBundleError
 
@@ -66,6 +67,7 @@ def load_yaml_mapping(path: Path) -> dict[str, Any]:
             ),
         ) from error
 
+    _reject_yaml_indirection(text)
     try:
         data = yaml.load(text, Loader=UniqueKeySafeLoader)
     except DuplicateKeyError as error:
@@ -126,3 +128,32 @@ def load_yaml_mapping(path: Path) -> dict[str, Any]:
             ),
         )
     return data
+
+
+def _reject_yaml_indirection(text: str) -> None:
+    try:
+        tokens = yaml.scan(text)
+        for token in tokens:
+            if isinstance(token, (AnchorToken, AliasToken)):
+                _yaml_indirection_error(token.start_mark.line, token.start_mark.column)
+            if isinstance(token, ScalarToken) and token.value == "<<" and token.style is None:
+                _yaml_indirection_error(token.start_mark.line, token.start_mark.column)
+    except TaskBundleError:
+        raise
+    except yaml.YAMLError:
+        return
+
+
+def _yaml_indirection_error(line: int, column: int) -> None:
+    raise TaskBundleError(
+        ErrorCode.BUNDLE_YAML_ERROR,
+        "YAML anchors, aliases, and merge keys are not supported.",
+        ErrorContext(
+            phase="bundle-yaml",
+            expected="An explicit task configuration without YAML indirection",
+            actual=f"YAML indirection at line {line + 1}, column {column + 1}",
+            corrective_action="Expand aliases and merge keys into explicit mapping values.",
+            path=Path("task.yaml"),
+            details={"line": line + 1, "column": column + 1},
+        ),
+    )

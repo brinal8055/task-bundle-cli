@@ -12,13 +12,19 @@ def build_input_manifest(
     bundle_root: Path,
     files: set[str],
     trees: set[str],
+    execution_trees: set[str],
 ) -> tuple[InputManifestEntry, ...]:
     entries: dict[str, InputManifestEntry] = {}
     for relative in sorted(files):
         path = bundle_root / Path(relative)
         entries[relative] = _file_entry(path, relative)
     for relative in sorted(trees):
-        _walk_tree(bundle_root, bundle_root / Path(relative), entries)
+        _walk_tree(
+            bundle_root,
+            bundle_root / Path(relative),
+            entries,
+            apply_generated_exclusions=relative not in execution_trees,
+        )
     return tuple(entries[path] for path in sorted(entries))
 
 
@@ -26,6 +32,7 @@ def _walk_tree(
     bundle_root: Path,
     directory: Path,
     entries: dict[str, InputManifestEntry],
+    apply_generated_exclusions: bool,
 ) -> None:
     try:
         children = sorted(directory.iterdir(), key=lambda path: path.name)
@@ -38,7 +45,7 @@ def _walk_tree(
     for child in children:
         relative = child.relative_to(bundle_root).as_posix()
         logical = PurePosixPath(relative)
-        if is_generated_path(logical):
+        if apply_generated_exclusions and is_generated_path(logical):
             continue
         try:
             mode = child.lstat().st_mode
@@ -47,7 +54,7 @@ def _walk_tree(
         if stat.S_ISLNK(mode):
             _special_file_error(relative, "Symlinks are not allowed in digest-covered inputs.")
         if stat.S_ISDIR(mode):
-            _walk_tree(bundle_root, child, entries)
+            _walk_tree(bundle_root, child, entries, apply_generated_exclusions)
         elif stat.S_ISREG(mode):
             entries[relative] = _file_entry(child, relative)
         else:

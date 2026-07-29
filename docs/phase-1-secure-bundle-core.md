@@ -6,7 +6,8 @@ network, Git, Docker, solver, or test operations.
 ## Loading and path security
 
 `load_bundle()` reads `task.yaml` with a safe YAML loader that rejects duplicate
-keys and custom tags, then validates it through the strict immutable task model.
+keys, custom tags, anchors, aliases, and merge keys, then validates it through
+the strict immutable task model.
 Every configured bundle path must be relative, exist inside the resolved bundle
 root, and have the expected regular-file or directory type.
 
@@ -26,13 +27,14 @@ and SHA-256 content digest. Entries are sorted by path. The final bundle digest
 hashes a framed canonical document containing the canonical-configuration hash
 and manifest.
 
-The conventional `evaluation/` tree is fully covered because its runner may
-invoke sibling preparation and parser files. Public files explicitly named by
-the schema, the Dockerfile, and the environment context are also covered.
+Every file beneath the conventional `evaluation/` tree is considered
+execution-relevant because its runner may invoke sibling harness, parser,
+fixture, or helper files. Public files explicitly named by the schema, the
+Dockerfile, and the environment context are also covered.
 Base-image references, selectors, provenance, platform, and build arguments are
 covered by canonical configuration.
 
-Generated state is excluded from directory traversal:
+Generated state is excluded from non-evaluation directory traversal:
 
 - `.task/`, `artifacts/`, and `__pycache__/`
 - Python bytecode
@@ -40,8 +42,10 @@ Generated state is excluded from directory traversal:
 - generated build-context directories
 - atomic snapshot temporary files
 
-An explicitly configured path matching an exclusion is rejected instead of
-being silently omitted.
+Explicit files and files beneath `evaluation/` take precedence over filename
+suffix exclusions. For example, `evaluation/fixtures/baseline.db` is included.
+Runtime-owned `.task/`, `artifacts/`, and generated-context paths remain
+forbidden as explicit inputs.
 
 ## Provenance and snapshots
 

@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 from typing import Literal, NoReturn
 
-from task_bundle.bundle.exclusions import is_generated_path
+from task_bundle.bundle.exclusions import is_runtime_owned_path
 from task_bundle.errors import ErrorCode, ErrorContext, TaskBundleError
 
 PathKind = Literal["file", "directory"]
@@ -30,11 +30,11 @@ def resolve_bundle_path(
     root = bundle_root.resolve()
     candidate = root / raw
     logical = PurePosixPath(raw.as_posix())
-    if is_generated_path(logical):
+    if is_runtime_owned_path(logical):
         _path_error(
             configured_path,
             expected,
-            "Generated or runtime-state paths cannot be bundle inputs.",
+            "Runtime-owned paths cannot be bundle inputs.",
         )
 
     try:

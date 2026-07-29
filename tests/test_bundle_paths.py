@@ -60,6 +60,25 @@ def test_symlink_escape_is_rejected(tmp_path: Path, bundle_factory: BundleFactor
     assert caught.value.code == ErrorCode.BUNDLE_PATH_ERROR
 
 
+def test_intermediate_symlink_component_is_rejected(
+    tmp_path: Path, bundle_factory: BundleFactory
+) -> None:
+    root = bundle_factory(tmp_path / "bundle")
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "description.md").write_text("outside", encoding="utf-8")
+    public = root / "public"
+    for child in public.iterdir():
+        child.unlink()
+    public.rmdir()
+    public.symlink_to(outside, target_is_directory=True)
+
+    with pytest.raises(TaskBundleError) as caught:
+        resolve_bundle_path(root, "public/description.md", "file")
+
+    assert caught.value.code == ErrorCode.BUNDLE_PATH_ERROR
+
+
 def test_fifo_is_not_a_regular_file(tmp_path: Path, bundle_factory: BundleFactory) -> None:
     if not hasattr(os, "mkfifo"):
         pytest.skip("FIFOs are not supported on this platform")

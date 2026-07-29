@@ -183,6 +183,23 @@ def test_generated_inputs_do_not_change_digest(
     assert load_bundle(root).bundle_input_digest == before
 
 
+def test_database_fixture_inside_evaluation_is_digest_covered(
+    tmp_path: Path, bundle_factory: BundleFactory
+) -> None:
+    root = bundle_factory(tmp_path / "bundle")
+    fixture = root / "evaluation/fixtures/baseline.db"
+    fixture.parent.mkdir()
+    fixture.write_text("first", encoding="utf-8")
+    first = load_bundle(root)
+    fixture.write_text("second", encoding="utf-8")
+    second = load_bundle(root)
+
+    assert "evaluation/fixtures/baseline.db" in {
+        entry.path for entry in first.input_manifest
+    }
+    assert first.bundle_input_digest != second.bundle_input_digest
+
+
 def test_manifest_is_sorted_and_digest_is_prefixed_lowercase(
     tmp_path: Path, bundle_factory: BundleFactory
 ) -> None:

@@ -53,7 +53,7 @@ def load_bundle(bundle_root: Path) -> LoadedBundle:
     normalized, files, trees = _normalize_and_collect_paths(root, task)
     canonical_config = canonical_json_bytes(normalized)
     canonical_digest = sha256_digest(canonical_config)
-    manifest = build_input_manifest(root, files, trees)
+    manifest = build_input_manifest(root, files, trees, execution_trees={"evaluation"})
     evaluation_inputs = _evaluation_digests(normalized, manifest)
     digest_document: dict[str, Any] = {
         "schema_version": "1",
