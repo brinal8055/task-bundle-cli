@@ -1,0 +1,7 @@
+diff --git a/README b/README
+--- a/README
++++ b/README
+@@ -1 +1,3 @@
+ Hello World!
++calculator.addition=enabled
++calculator.subtraction=broken

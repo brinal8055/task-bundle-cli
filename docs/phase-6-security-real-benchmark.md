@@ -59,10 +59,12 @@ alter the raw source tree. Its official digest-pinned image separately proves
 the selector semantics. It remains boundary evidence rather than the
 successful Task Bundle lifecycle.
 
-The smaller `submission/example-bundle` provides a quick clean-machine
-lifecycle. `submission/solvers/verify-isolation-and-solve.py` recursively
-inspects its visible task/workspace/tmp trees plus environment and argv for
-controlled hidden canaries before producing a deterministic public solution.
+The smaller `bundles/synthetic-go-calculator` provides the quick clean-machine
+lifecycle. Its task-owned Go adapter exercises the language-independent
+contract, while
+`submission/solvers/synthetic-go/verify-isolation/solve.sh` checks controlled
+pre-finalisation paths and environment markers before producing a deterministic
+public solution.
 
 Run all non-Docker gates with `scripts/verify-submission.sh`. Set
 `TASK_BUNDLE_RUN_REAL_DOCKER=1` when invoking `scripts/verify-security.py` to

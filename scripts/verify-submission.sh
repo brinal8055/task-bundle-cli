@@ -37,13 +37,16 @@ python3.12 -m venv "$verify_root/venv"
 if [ "$run_real" -eq 1 ]; then
   TASK_BUNDLE_RUN_REAL_DOCKER=1 \
   TASK_BUNDLE_REAL_DOCKER_GO_BASE="${TASK_BUNDLE_REAL_DOCKER_GO_BASE:-golang@sha256:3d699e4d15d0f8f13c9195c0632a16702b8cbdece2955af1c23b37ae5d55a253}" \
+  TASK_BUNDLE_REAL_DOCKER_PYTHON_BASE="${TASK_BUNDLE_REAL_DOCKER_PYTHON_BASE:-jefzda/sweap-images@sha256:f9e1f9d428d55a8f26b27d89f29819b79a82b847fd252903c68221b2812ccd04}" \
   TASK_BUNDLE_REAL_DOCKER_PLATFORM="${TASK_BUNDLE_REAL_DOCKER_PLATFORM:-linux/amd64}" \
     uv run python scripts/verify-security.py
   "$verify_root/venv/bin/python" scripts/verify-submission-real.py \
     "$verify_root/venv/bin/task"
 fi
 
-if find bundles submission/example-bundle \
+find bundles -type d -name __pycache__ -prune -exec rm -rf {} +
+
+if find bundles \
   \( -name .task -o -name artifacts -o -name '*.db' -o -name __pycache__ \) \
   -print | grep .; then
   echo "generated runtime state is present in committed examples" >&2

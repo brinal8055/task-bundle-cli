@@ -1,0 +1,30 @@
+{
+  "schema_version": "1",
+  "source": {
+    "public_https_git": true,
+    "submodules": false,
+    "private_git": false
+  },
+  "runtime": {
+    "docker": true,
+    "remote_docker": false,
+    "runtime_network": false
+  },
+  "solvers": {
+    "noop": true,
+    "patch": true,
+    "command_installed": true,
+    "command_staged_context": true,
+    "provider_llm": false
+  },
+  "security": {
+    "pre_finalisation_hidden_isolation": true,
+    "candidate_writable_final_results": false,
+    "cryptographic_in_process_result_integrity": false
+  },
+  "examples": {
+    "synthetic_go": "supported",
+    "swebench_pro_ansible": "supported",
+    "swebench_pro_openlibrary": "unsupported_gitlinks"
+  }
+}

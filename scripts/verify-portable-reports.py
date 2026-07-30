@@ -7,11 +7,16 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 REPORTS = ROOT / "submission/reports"
+SUPPORT_MATRIX = ROOT / "submission/support-matrix.json"
 REQUIRED_JSON = (
     "real-task-init-report.json",
     "real-task-validation-report.json",
     "real-task-noop-run-report.json",
     "real-task-resolved-run-report.json",
+)
+SYNTHETIC_JSON = (
+    "synthetic/noop-unresolved.json",
+    "synthetic/golden-resolved.json",
 )
 FORBIDDEN_KEYS = {
     "credential",
@@ -46,9 +51,39 @@ def _load(name: str) -> dict[str, Any]:
     return payload
 
 
+def _validate_synthetic(
+    report: dict[str, Any],
+    *,
+    expected_exit: int,
+    resolved: bool,
+    solver_type: str,
+    candidate_outcome: str,
+) -> None:
+    if report["task_id"] != "synthetic-go-calculator":
+        raise ValueError("synthetic report has the wrong task")
+    if report["exit_code"] != expected_exit or report["resolved"] is not resolved:
+        raise ValueError("synthetic report has the wrong resolved classification")
+    if report["command_status"] != "succeeded":
+        raise ValueError("synthetic report does not describe a completed command")
+    if report["solver"]["type"] != solver_type:
+        raise ValueError("synthetic report has the wrong solver")
+    baseline = report["baseline"]
+    candidate = report["candidate"]
+    if baseline["outcome"] != "accepted" or candidate["outcome"] != candidate_outcome:
+        raise ValueError("synthetic report has the wrong baseline/candidate outcome")
+    for phase in (baseline, candidate):
+        results = phase["results"]
+        groups = [result["group"] for result in results]
+        if groups.count("pass_to_pass") != 1 or groups.count("fail_to_pass") != 2:
+            raise ValueError("synthetic report does not show complete selector groups")
+    if report["cleanup_complete"] is not True:
+        raise ValueError("synthetic report does not prove cleanup")
+
+
 def main() -> int:
     reports = {name: _load(name) for name in REQUIRED_JSON}
-    for path in sorted(REPORTS.glob("*.json")):
+    synthetic = {name: _load(name) for name in SYNTHETIC_JSON}
+    for path in sorted(REPORTS.rglob("*.json")):
         payload = json.loads(path.read_text(encoding="utf-8"))
         _walk(payload, source=path)
 
@@ -74,6 +109,52 @@ def main() -> int:
         raise ValueError("no-op report references a different validation")
     if resolved["validation_id"] != validation["validation_id"]:
         raise ValueError("resolved report references a different validation")
+
+    _validate_synthetic(
+        synthetic["synthetic/noop-unresolved.json"],
+        expected_exit=1,
+        resolved=False,
+        solver_type="noop",
+        candidate_outcome="rejected",
+    )
+    _validate_synthetic(
+        synthetic["synthetic/golden-resolved.json"],
+        expected_exit=0,
+        resolved=True,
+        solver_type="patch",
+        candidate_outcome="accepted",
+    )
+    synthetic_identities = {
+        report["identity"]["bundle_input_digest"] for report in synthetic.values()
+    }
+    synthetic_images = {report["identity"]["task_image_id"] for report in synthetic.values()}
+    synthetic_validations = {
+        report["identity"]["validation_id"] for report in synthetic.values()
+    }
+    if (
+        len(synthetic_identities) != 1
+        or len(synthetic_images) != 1
+        or len(synthetic_validations) != 1
+    ):
+        raise ValueError("synthetic reports do not share one verified identity")
+
+    support = json.loads(SUPPORT_MATRIX.read_text(encoding="utf-8"))
+    _walk(support, source=SUPPORT_MATRIX)
+    if support["schema_version"] != "1":
+        raise ValueError("support matrix schema is unsupported")
+    if support["source"] != {
+        "public_https_git": True,
+        "submodules": False,
+        "private_git": False,
+    }:
+        raise ValueError("support matrix source capabilities are inaccurate")
+    if support["security"] != {
+        "pre_finalisation_hidden_isolation": True,
+        "candidate_writable_final_results": False,
+        "cryptographic_in_process_result_integrity": False,
+    }:
+        raise ValueError("support matrix security capabilities are inaccurate")
+
     for path in (
         REPORTS / "real-task-selection.md",
         REPORTS / "real-task-command-evidence.md",
@@ -82,7 +163,7 @@ def main() -> int:
         text = path.read_text(encoding="utf-8")
         if any(marker in text for marker in LOCAL_PATH_MARKERS):
             raise ValueError(f"{path.name}: local absolute path is not portable")
-    print(f"portable reports verified: {len(tuple(REPORTS.glob('*.json')))} JSON files")
+    print(f"portable reports verified: {len(tuple(REPORTS.rglob('*.json')))} JSON files")
     return 0
 
 

@@ -1,0 +1,84 @@
+{
+  "schema_version": "1",
+  "report_type": "portable_run_evidence",
+  "task_id": "synthetic-go-calculator",
+  "command_id": "cmd_efb65aaf5a30491198a91fc2dea82cda",
+  "exit_code": 1,
+  "command_status": "succeeded",
+  "evaluation_status": "unresolved",
+  "resolved": false,
+  "solver": {
+    "type": "noop",
+    "status": "succeeded",
+    "exit_code": 0,
+    "timed_out": false,
+    "workspace_export_status": "completed"
+  },
+  "identity": {
+    "bundle_input_digest": "sha256:5716b0ef3887a71bf0dc65764b7117dc77e49fee80400b2160e52b8e23bb1876",
+    "task_image_id": "sha256:f65e037d0bfda7f79ec36b1e67124e3171493972b12274063a61597f4770deba",
+    "validation_id": "val_f761bc64143939d79d4c02315309a67e",
+    "selector_digest": "sha256:1d14d3baa83c6042417dfc69de1fb2b957c85922467f4c0e6d0d3357b635249d"
+  },
+  "baseline": {
+    "outcome": "accepted",
+    "pass_to_pass_matched": 1,
+    "pass_to_pass_total": 1,
+    "fail_to_pass_matched": 2,
+    "fail_to_pass_total": 2,
+    "results": [
+      {
+        "selector": "TestSubtract",
+        "group": "pass_to_pass",
+        "actual_status": "passed",
+        "expected_statuses": ["passed"],
+        "matched": true
+      },
+      {
+        "selector": "TestAddPositive",
+        "group": "fail_to_pass",
+        "actual_status": "failed",
+        "expected_statuses": ["failed"],
+        "matched": true
+      },
+      {
+        "selector": "TestAddNegative",
+        "group": "fail_to_pass",
+        "actual_status": "failed",
+        "expected_statuses": ["failed"],
+        "matched": true
+      }
+    ]
+  },
+  "candidate": {
+    "outcome": "rejected",
+    "pass_to_pass_matched": 1,
+    "pass_to_pass_total": 1,
+    "fail_to_pass_matched": 0,
+    "fail_to_pass_total": 2,
+    "results": [
+      {
+        "selector": "TestSubtract",
+        "group": "pass_to_pass",
+        "actual_status": "passed",
+        "expected_statuses": ["passed"],
+        "matched": true
+      },
+      {
+        "selector": "TestAddPositive",
+        "group": "fail_to_pass",
+        "actual_status": "failed",
+        "expected_statuses": ["passed"],
+        "matched": false
+      },
+      {
+        "selector": "TestAddNegative",
+        "group": "fail_to_pass",
+        "actual_status": "failed",
+        "expected_statuses": ["passed"],
+        "matched": false
+      }
+    ]
+  },
+  "cleanup_complete": true
+}

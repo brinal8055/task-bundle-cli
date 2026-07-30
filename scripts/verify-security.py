@@ -33,6 +33,7 @@ def main() -> int:
             "pytest",
             "-q",
             "tests/test_real_docker_run.py",
+            "tests/test_real_docker_integrity.py",
             environment=environment,
         )
     return 0

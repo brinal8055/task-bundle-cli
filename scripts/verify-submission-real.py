@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
-EXAMPLE = ROOT / "submission/example-bundle"
+SYNTHETIC = ROOT / "bundles/synthetic-go-calculator"
 REAL = ROOT / "bundles/swebench-pro-ansible-d9f186"
 
 
@@ -47,7 +47,7 @@ def _show(task: str, command_id: str) -> None:
 
 
 def _cleanup_generated() -> None:
-    for bundle in (EXAMPLE, REAL):
+    for bundle in (SYNTHETIC, REAL):
         for name in (".task", "artifacts"):
             path = bundle / name
             if path.exists():
@@ -55,7 +55,7 @@ def _cleanup_generated() -> None:
 
 
 def _assert_docker_cleanup(command_ids: list[str]) -> None:
-    for task_id in ("submission-hello-answer", "swebench-pro-ansible-d9f186"):
+    for task_id in ("synthetic-go-calculator", "swebench-pro-ansible-d9f186"):
         completed = subprocess.run(
             [
                 "docker",
@@ -95,31 +95,41 @@ def main() -> int:
     command_ids: list[str] = []
     _cleanup_generated()
     try:
-        example_init = _invoke(task, 0, "init", str(EXAMPLE))
-        example_validate = _invoke(task, 0, "validate", str(EXAMPLE))
-        example_noop = _invoke(task, 1, "run", str(EXAMPLE), "--solver", "noop")
-        example_patch = _invoke(
+        synthetic_init = _invoke(task, 0, "init", str(SYNTHETIC))
+        synthetic_validate = _invoke(task, 0, "validate", str(SYNTHETIC))
+        synthetic_noop = _invoke(task, 1, "run", str(SYNTHETIC), "--solver", "noop")
+        synthetic_patch = _invoke(
             task,
             0,
             "run",
-            str(EXAMPLE),
+            str(SYNTHETIC),
             "--solver",
             "patch",
             "--patch",
-            str(EXAMPLE / "candidates/golden.patch"),
+            str(ROOT / "submission/candidates/synthetic-go/golden.patch"),
         )
-        example_isolation = _invoke(
+        synthetic_installed = _invoke(
             task,
             0,
             "run",
-            str(EXAMPLE),
+            str(SYNTHETIC),
+            "--solver",
+            "command",
+            "--",
+            "solve-task",
+        )
+        synthetic_isolation = _invoke(
+            task,
+            0,
+            "run",
+            str(SYNTHETIC),
             "--solver",
             "command",
             "--solver-context",
-            str(ROOT / "submission/solvers"),
+            str(ROOT / "submission/solvers/synthetic-go/verify-isolation"),
             "--",
-            "python",
-            "/task/solver/verify-isolation-and-solve.py",
+            "/bin/sh",
+            "/task/solver/solve.sh",
         )
         real_init = _invoke(task, 0, "init", str(REAL))
         real_validate = _invoke(task, 0, "validate", str(REAL))
@@ -139,22 +149,25 @@ def main() -> int:
             )
 
         results = (
-            example_init,
-            example_validate,
-            example_noop,
-            example_patch,
-            example_isolation,
+            synthetic_init,
+            synthetic_validate,
+            synthetic_noop,
+            synthetic_patch,
+            synthetic_installed,
+            synthetic_isolation,
             real_init,
             real_validate,
             real_noop,
             real_resolved,
         )
         command_ids = [str(result["command_id"]) for result in results]
-        if example_noop.get("resolved") is not False:
+        if synthetic_noop.get("resolved") is not False:
             raise RuntimeError("synthetic no-op did not remain unresolved")
-        if example_patch.get("resolved") is not True:
+        if synthetic_patch.get("resolved") is not True:
             raise RuntimeError("synthetic patch did not resolve")
-        if example_isolation.get("resolved") is not True:
+        if synthetic_installed.get("resolved") is not True:
+            raise RuntimeError("synthetic installed command solver did not resolve")
+        if synthetic_isolation.get("resolved") is not True:
             raise RuntimeError("synthetic isolation solver did not resolve")
         if real_validate.get("validation_status") != "valid":
             raise RuntimeError("real validation did not pass")

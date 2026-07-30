@@ -1,0 +1,6 @@
+diff --git a/README b/README
+--- a/README
++++ b/README
+@@ -1 +1,2 @@
+ Hello World!
++calculator.addition=positive

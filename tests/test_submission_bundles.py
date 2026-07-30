@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from task_bundle.bundle.canonical import sha256_digest
@@ -55,10 +56,44 @@ def test_selected_real_bundle_preserves_immutable_record_fields() -> None:
     assert "ENTRYPOINT []" in (bundle.root / "environment/Dockerfile").read_text()
 
 
-def test_submission_example_is_loadable_without_generated_state() -> None:
-    root = ROOT / "submission/example-bundle"
+def test_synthetic_go_bundle_is_loadable_without_generated_state() -> None:
+    root = ROOT / "bundles/synthetic-go-calculator"
     bundle = load_bundle(root)
 
     assert bundle.task.repository.commit == "7fd1a60b01f91b314f59955a4e4d4e80d8edf11d"
-    assert not (root / ".task").exists()
-    assert not (root / "artifacts").exists()
+    assert bundle.task.environment.platform == "linux/amd64"
+    assert bundle.task.evaluation.runner.adapter_contract_version == "2"
+    assert [test.selector for test in bundle.task.evaluation.pass_to_pass] == ["TestSubtract"]
+    assert [test.selector for test in bundle.task.evaluation.fail_to_pass] == [
+        "TestAddPositive",
+        "TestAddNegative",
+    ]
+    assert all(
+        not entry.path.startswith((".task/", "artifacts/")) for entry in bundle.input_manifest
+    )
+    assert bundle.bundle_input_digest == (
+        "sha256:5716b0ef3887a71bf0dc65764b7117dc77e49fee80400b2160e52b8e23bb1876"
+    )
+
+
+def test_submission_support_matrix_matches_implemented_boundaries() -> None:
+    payload = json.loads((ROOT / "submission/support-matrix.json").read_text(encoding="utf-8"))
+
+    assert payload["schema_version"] == "1"
+    assert payload["source"] == {
+        "public_https_git": True,
+        "submodules": False,
+        "private_git": False,
+    }
+    assert payload["solvers"] == {
+        "noop": True,
+        "patch": True,
+        "command_installed": True,
+        "command_staged_context": True,
+        "provider_llm": False,
+    }
+    assert payload["security"] == {
+        "pre_finalisation_hidden_isolation": True,
+        "candidate_writable_final_results": False,
+        "cryptographic_in_process_result_integrity": False,
+    }

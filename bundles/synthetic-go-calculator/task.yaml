@@ -1,0 +1,69 @@
+schema_version: "1"
+task:
+  id: synthetic-go-calculator
+  title: Enable correct calculator addition
+repository:
+  url: https://github.com/octocat/Hello-World.git
+  commit: 7fd1a60b01f91b314f59955a4e4d4e80d8edf11d
+  submodules: false
+public:
+  description: public/description.md
+  requirements: public/requirements.md
+  interface: public/interface.md
+environment:
+  type: dockerfile
+  dockerfile: environment/Dockerfile
+  context: environment/context
+  platform: linux/amd64
+  build:
+    timeout_seconds: 900
+    network: false
+  runtime:
+    working_directory: /workspace/repo
+    user: "1000:1000"
+    network: none
+    timeout_seconds: 300
+    cpus: 2
+    memory_mb: 2048
+    pids_limit: 128
+    read_only_root: true
+    tmpfs:
+      - /tmp:size=512m
+evaluation:
+  test_patch: evaluation/hidden/test.patch
+  golden_patch: evaluation/hidden/golden.patch
+  prepare:
+    command:
+      - /evaluation/harness/prepare.sh
+    network: false
+  runner:
+    build_plan:
+      - /usr/bin/env
+      - HOME=/workspace
+      - GOCACHE=/workspace/.trusted-go-cache
+      - TMPDIR=/workspace
+      - go
+      - run
+      - /evaluation/harness/adapter.go
+      - build-plan
+    parse_result:
+      - go
+      - run
+      - /evaluation/harness/adapter.go
+      - parse-result
+    adapter_contract_version: "2"
+    result_schema_version: "1"
+  pass_to_pass:
+    - selector: TestSubtract
+  fail_to_pass:
+    - selector: TestAddPositive
+      baseline_statuses:
+        - failed
+    - selector: TestAddNegative
+      baseline_statuses:
+        - failed
+  repeat: 1
+solver:
+  timeout_seconds: 300
+  max_patch_bytes: 1048576
+  max_changed_files: 16

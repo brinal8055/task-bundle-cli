@@ -1,0 +1,159 @@
+# Task Bundle CLI design
+
+## Purpose and trust boundary
+
+Task Bundle CLI turns a digest-covered task bundle and an exact public Git
+commit into a reproducible task image, proves baseline/golden semantics, runs a
+restricted solver, reconstructs its exported filesystem as raw Git objects, and
+evaluates only the finalized candidate against fresh hidden inputs.
+
+The bundle author and task-owned evaluator are trusted. Candidate code, solver
+context, patch inputs, repository content, normalized result output, Docker
+state, persisted database paths, and user/system Git configuration are not.
+Docker provides process isolation, not a hostile multi-tenant sandbox.
+
+## Data flow
+
+```text
+bundle + public Git commit
+  -> canonical snapshot + raw source tree
+  -> digest-labeled image + lock
+  -> baseline/golden validation identity
+  -> baseline preflight
+  -> isolated solver workspace
+  -> bounded filesystem export
+  -> raw baseline/candidate Git trees
+  -> regenerated binary patch + exact round-trip
+  -> patch/hidden-path policy
+  -> fresh candidate evaluator + host-captured execution records
+  -> proven candidate shutdown + separate trusted parser
+  -> normalized selector classification
+  -> SQLite events + immutable command artifacts
+```
+
+Solver and evaluator storage are separate named volumes. The solver receives
+only `/workspace`, the public description/requirements/interface, an optional
+bounded solver context, or a validated patch input. It never receives the
+bundle directory, hidden/golden patches, selectors, task configuration,
+validation evidence, evaluator harness, database, artifact directory, or
+Docker socket.
+
+## Candidate finalization order
+
+The persisted completion order is:
+
+1. `SOLVER_COMPLETED`
+2. `WORKSPACE_EXPORT_VALIDATED`
+3. `CANDIDATE_TREE_CONSTRUCTED`
+4. `CANDIDATE_PATCH_GENERATED`
+5. `CANDIDATE_PATCH_ROUNDTRIP_VERIFIED`
+6. `PATCH_POLICY_ACCEPTED`
+7. `CANDIDATE_FINALIZED`
+8. `CANDIDATE_EVALUATOR_STARTED`
+
+No candidate evaluator is created before the finalization event. A policy or
+hidden-path conflict therefore cannot leak back into a still-running solver.
+
+## Reproducibility identity
+
+Bundle identity covers canonical typed configuration, all allowlisted bundle
+files, executable bits, public text, environment definition, task-owned
+harness, hidden/golden patches, selectors, and provenance. Source identity
+covers the exact commit, raw Git tree, normalized source manifest, and Git
+implementation evidence. Image identity is a Docker content ID plus required
+labels and platform. Validation reuse additionally binds runtime policy,
+harness, selectors, hidden/golden digests, and repeat strength.
+
+Candidate construction hashes exported bytes and symlink targets directly into
+a private bare object database. It does not use a solver worktree index, Git
+attributes, filters, LFS, EOL conversion, `ident`, hooks, credentials, or
+ambient Git configuration. The locked baseline tree must reconstruct exactly.
+The generated `--binary` patch must rebuild the entire candidate manifest:
+path, type, bytes, executable mode, symlink target, additions, and removals.
+
+Image construction independently exports `/opt/task/repo` from the immutable
+image ID and reconstructs the same complete manifest and raw Git tree before
+the lock is written. Content, add/delete, executable-mode, file/symlink, target,
+special-entry, `.git`, and case-collision differences fail. Declared Docker
+volumes at, above, or below `/opt/task/repo` are rejected during inspection so
+they cannot shadow verified image bytes.
+
+Evaluation adapters use explicit contract version `2`. A strict task-owned plan
+may run all selectors together, in groups, or individually. Docker captures
+each execution record, stops the candidate container, verifies no PID remains
+and restart policy is `no`, then stages the records read-only for a separate
+non-root parser. Candidate-created final result files are never accepted.
+
+## Failure and persistence semantics
+
+Configuration failures exit `2`, infrastructure failures `3`, validation
+failures `4`, solver failures `5`, and patch/policy failures `6`. A completed
+unresolved candidate is a successful command with process exit `1`; a resolved
+candidate exits `0`. Phase evidence commits independently, so later evaluator
+or report failures do not erase completed baseline, solver, candidate, or test
+records. Handled commands never remain `running`.
+
+`task show` never reads artifact contents. It validates persisted paths as
+normalized, command-root-contained paths, rejects absolute/traversing/symlink
+paths, and marks missing files without a traceback.
+
+## Real benchmark materialization
+
+The supported real demonstration is
+`bundles/swebench-pro-ansible-d9f186`, frozen to SWE-bench Pro revision
+`7ab5114912baf22bb098818e604c02fe7ad2c11f`, dataset row `407`, commit
+`59ca05b70994b07a9507f61a0871146a4991b262`, and tree
+`64a85753dada2a0a05dcf13093dabbdae13cc7de`. That tree has no Gitlinks.
+
+The repository-specific bundle resets the official image's interactive
+entrypoint and sets `PYTHONPATH=/workspace/repo/lib` only for its task-owned
+prepare/test processes. This prevents the image's editable `/app` Ansible
+installation from shadowing the CLI-materialized candidate. The CLI core
+contains no Ansible or pytest behavior.
+
+Ansible's 5,084-entry, 13,481,165-byte source tree uses explicit 6,000-entry
+and 20 MiB solver export limits. Complete manifest construction globally sorts
+validated paths before canonical digesting, so nested directory traversal
+order cannot make a safe large repository fail strict ordering.
+
+OpenLibrary remains the deliberate no-submodule boundary case. It is not
+substituted with official-image source or represented as a successful CLI run.
+
+Candidate code within a test process may still interfere with that process.
+The result boundary prevents direct accepted-file spoofing and post-exit races;
+it does not provide cryptographic in-process result integrity.
+
+## Deliberate trade-offs
+
+Separate solver, evaluator, and parser lifecycles cost more Docker startup time
+than one mutable container, but they make hidden-input timing and result
+ownership inspectable. An explicit adapter contract similarly asks each task
+author to describe execution and parsing instead of guessing a repository's
+language or test framework. This keeps the CLI core language-independent and
+lets a bundle group selectors when framework startup dominates.
+
+Validation requires both the broken baseline and a known-good golden patch.
+That is slower than checking only that the baseline fails, but it detects
+impossible tasks, stale selectors, and harnesses that never observe the intended
+fix. Each later run repeats baseline preflight before accepting a solver result,
+trading additional compute for protection against changed images, hosts, and
+validation state.
+
+Reproducibility is defined by exact Git objects, a normalized filesystem
+manifest, bundle digests, a Docker image content ID, and runtime-policy
+identity. The CLI verifies the complete image copy of the repository instead of
+claiming universal byte-identical Docker rebuilds across engines and platforms.
+Docker is the pragmatic local isolation boundary; a microVM would strengthen
+host isolation at substantially greater setup and execution cost.
+
+SQLite and command-local artifacts make one-machine execution easy to inspect
+and recover without an external service. That choice deliberately postpones
+remote scheduling, caching, and distributed execution: correctness evidence,
+cleanup, and stable identities are established before performance
+optimizations that would multiply lifecycle states.
+
+## Non-goals
+
+There is no provider-backed LLM integration, cache, parallel scheduler, remote
+Docker, Podman/Kubernetes backend, web UI, private-repository credential flow,
+or distributed execution.
