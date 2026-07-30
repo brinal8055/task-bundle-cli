@@ -71,7 +71,12 @@ def test_domain_error_has_stable_exit_code_without_traceback(
 
 
 def test_init_help_lists_only_supported_phase_3_options() -> None:
-    result = runner.invoke(app, ["init", "--help"])
+    result = runner.invoke(
+        app,
+        ["init", "--help"],
+        color=False,
+        terminal_width=160,
+    )
 
     assert result.exit_code == 0
     for option in (
@@ -207,7 +212,12 @@ def _validation_result(status: ValidationStatus) -> ValidationResult:
 
 
 def test_validate_help_lists_only_supported_phase_4_options() -> None:
-    result = runner.invoke(app, ["validate", "--help"])
+    result = runner.invoke(
+        app,
+        ["validate", "--help"],
+        color=False,
+        terminal_width=160,
+    )
 
     assert result.exit_code == 0
     for option in ("--repeat", "--keep-containers", "--json", "--no-colour"):
@@ -340,7 +350,12 @@ def _run_result(*, resolved: bool) -> RunResult:
 
 
 def test_run_help_lists_only_phase_5_solver_options() -> None:
-    result = runner.invoke(app, ["run", "--help"])
+    result = runner.invoke(
+        app,
+        ["run", "--help"],
+        color=False,
+        terminal_width=160,
+    )
 
     assert result.exit_code == 0
     for option in (

@@ -1,6 +1,5 @@
 import os
 import socket
-import tempfile
 from pathlib import Path
 
 import pytest
@@ -91,21 +90,23 @@ def test_fifo_is_not_a_regular_file(tmp_path: Path, bundle_factory: BundleFactor
 
 
 def test_socket_is_not_a_regular_file(
+    tmp_path: Path,
     bundle_factory: BundleFactory,
 ) -> None:
-    with tempfile.TemporaryDirectory(prefix="tb-", dir="/private/tmp") as temporary:
-        root = bundle_factory(Path(temporary) / "bundle")
-        socket_path = root / "public/input.sock"
-        server = socket.socket(socket.AF_UNIX)
+    if not hasattr(socket, "AF_UNIX"):
+        pytest.skip("AF_UNIX sockets are not supported on this platform")
+    root = bundle_factory(tmp_path / "bundle")
+    socket_path = root / "public/input.sock"
+    server = socket.socket(socket.AF_UNIX)
+    try:
         try:
-            try:
-                server.bind(str(socket_path))
-            except OSError as error:
-                pytest.skip(f"Unix sockets unavailable in test environment: {error}")
-            with pytest.raises(TaskBundleError):
-                resolve_bundle_path(root, "public/input.sock", "file")
-        finally:
-            server.close()
+            server.bind(str(socket_path))
+        except OSError as error:
+            pytest.skip(f"Unix sockets unavailable in test environment: {error}")
+        with pytest.raises(TaskBundleError):
+            resolve_bundle_path(root, "public/input.sock", "file")
+    finally:
+        server.close()
 
 
 def test_generated_path_cannot_be_explicit_input(
