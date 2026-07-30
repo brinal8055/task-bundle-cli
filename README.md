@@ -197,6 +197,4 @@ available. It treats no-op exit `1` as expected and audits resource cleanup.
 ## Design and reviewer material
 
 Start with the reviewer-focused [design notes](DESIGN.md) and
-[submission map](submission/README.md). The full implementation contract is in
-[docs/technical-design.md](docs/technical-design.md); phase documents under
-[`docs/`](docs) record the security and lifecycle decisions in greater depth.
+[submission map](submission/README.md).
