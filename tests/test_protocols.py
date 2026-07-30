@@ -1,7 +1,13 @@
 from collections.abc import Sequence
-from pathlib import Path
 
-from task_bundle.models import EvaluationPlan, NormalizedResult
+from task_bundle.models import (
+    CapturedTestExecutions,
+    EvaluationPlan,
+    NormalizedResult,
+)
+from task_bundle.models import (
+    TestExecutionPlan as ExecutionPlan,
+)
 from task_bundle.protocols import (
     BuildRequest,
     ContainerRequest,
@@ -43,10 +49,14 @@ class FakeSolver:
 
 
 class FakeAdapter:
-    def create_plan(self, plan: EvaluationPlan, destination: Path) -> None:
-        return None
+    def create_plan(self, plan: EvaluationPlan) -> ExecutionPlan:
+        raise NotImplementedError
 
-    def parse_results(self, result_file: Path) -> NormalizedResult:
+    def parse_results(
+        self,
+        plan: ExecutionPlan,
+        captured: CapturedTestExecutions,
+    ) -> NormalizedResult:
         raise NotImplementedError
 
 

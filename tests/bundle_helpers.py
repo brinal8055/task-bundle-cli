@@ -36,8 +36,12 @@ def task_mapping() -> dict[str, Any]:
                 "network": False,
             },
             "runner": {
-                "command": ["/evaluation/harness/run-tests.sh"],
-                "result_file": "/evaluation/output/results.json",
+                "build_plan": ["/evaluation/harness/run-tests.sh"],
+                "parse_result": [
+                    "python",
+                    "/evaluation/harness/parse-results.py",
+                ],
+                "adapter_contract_version": "2",
                 "result_schema_version": "1",
             },
             "pass_to_pass": [{"selector": "tests/test_api.py::test_existing"}],

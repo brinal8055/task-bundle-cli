@@ -141,26 +141,17 @@ class PrepareSpec(CommandSpec):
     network: Literal[False] = False
 
 
-class RunnerSpec(CommandSpec):
-    result_file: str
+class RunnerSpec(StrictModel):
+    build_plan: list[str] = Field(min_length=1)
+    parse_result: list[str] = Field(min_length=1)
+    adapter_contract_version: Literal["2"]
     result_schema_version: Literal["1"] = "1"
 
-    @field_validator("result_file")
+    @field_validator("build_plan", "parse_result")
     @classmethod
-    def result_file_must_be_inside_output(cls, value: str) -> str:
-        path = PurePosixPath(value)
-        output = PurePosixPath("/evaluation/output")
-        try:
-            relative = path.relative_to(output)
-        except ValueError as error:
-            raise ValueError("result_file must be inside /evaluation/output") from error
-        if (
-            not path.is_absolute()
-            or ".." in path.parts
-            or path.as_posix() != value
-            or relative.as_posix() in {"", "."}
-        ):
-            raise ValueError("result_file must be a normalized output file path")
+    def adapter_commands_must_be_safe_argv(cls, value: list[str]) -> list[str]:
+        if any(not item or "\0" in item for item in value):
+            raise ValueError("adapter arguments must be non-empty and contain no NUL")
         return value
 
 
@@ -268,6 +259,109 @@ class EvaluationPlan(StrictModel):
     pass_to_pass: list[PassToPass]
     fail_to_pass: list[FailToPass]
     timeout_seconds: PositiveInt
+
+
+class TestExecution(StrictModel):
+    execution_id: str = Field(min_length=1)
+    requested_selectors: list[str] = Field(min_length=1)
+    argv: list[str] = Field(min_length=1)
+    timeout_seconds: PositiveInt
+
+    @field_validator("execution_id")
+    @classmethod
+    def execution_id_must_be_safe(cls, value: str) -> str:
+        if "\0" in value:
+            raise ValueError("execution ID must contain no NUL")
+        return value
+
+    @field_validator("requested_selectors", "argv")
+    @classmethod
+    def string_lists_must_be_structured(cls, value: list[str]) -> list[str]:
+        if any(not item or "\0" in item for item in value):
+            raise ValueError("execution arguments must be non-empty and contain no NUL")
+        if len(value) != len(set(value)):
+            raise ValueError("execution string lists must not contain duplicates")
+        return value
+
+
+class TestExecutionPlan(StrictModel):
+    schema_version: Literal["2"]
+    executions: list[TestExecution] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def identifiers_and_selectors_must_be_unique(self) -> "TestExecutionPlan":
+        identifiers = [item.execution_id for item in self.executions]
+        if len(identifiers) != len(set(identifiers)):
+            raise ValueError("execution IDs must be unique")
+        selectors = [
+            selector
+            for item in self.executions
+            for selector in item.requested_selectors
+        ]
+        if len(selectors) != len(set(selectors)):
+            raise ValueError("execution selectors must be unique")
+        return self
+
+
+class CapturedTestExecution(StrictModel):
+    execution_id: str = Field(min_length=1)
+    requested_selectors: list[str] = Field(min_length=1)
+    argv: list[str] = Field(min_length=1)
+    started_at: datetime
+    finished_at: datetime
+    duration_ms: int = Field(ge=0, le=86_400_000)
+    exit_code: int | None
+    timed_out: bool
+    stdout: str = Field(max_length=8_388_650)
+    stderr: str = Field(max_length=8_388_650)
+    stdout_truncated: bool
+    stderr_truncated: bool
+    candidate_processes_terminated: Literal[True] = True
+
+    @field_validator("execution_id")
+    @classmethod
+    def captured_execution_id_must_be_safe(cls, value: str) -> str:
+        if "\0" in value:
+            raise ValueError("execution ID must contain no NUL")
+        return value
+
+    @field_validator("requested_selectors", "argv")
+    @classmethod
+    def captured_string_lists_must_be_structured(cls, value: list[str]) -> list[str]:
+        if any(not item or "\0" in item for item in value):
+            raise ValueError("captured arguments must be non-empty and contain no NUL")
+        if len(value) != len(set(value)):
+            raise ValueError("captured string lists must not contain duplicates")
+        return value
+
+    @field_validator("started_at", "finished_at")
+    @classmethod
+    def execution_timestamps_must_include_timezone(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("execution timestamps must include a timezone")
+        return value.astimezone(UTC)
+
+    @model_validator(mode="after")
+    def execution_state_must_be_consistent(self) -> "CapturedTestExecution":
+        if self.finished_at < self.started_at:
+            raise ValueError("execution finished_at must not precede started_at")
+        if self.timed_out and self.exit_code is not None:
+            raise ValueError("timed-out execution must not include an exit code")
+        if not self.timed_out and self.exit_code is None:
+            raise ValueError("non-timeout execution must include an exit code")
+        return self
+
+
+class CapturedTestExecutions(StrictModel):
+    schema_version: Literal["1"] = "1"
+    executions: list[CapturedTestExecution] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def execution_ids_must_be_unique(self) -> "CapturedTestExecutions":
+        identifiers = [item.execution_id for item in self.executions]
+        if len(identifiers) != len(set(identifiers)):
+            raise ValueError("captured execution IDs must be unique")
+        return self
 
 
 class InputManifestEntry(StrictModel):

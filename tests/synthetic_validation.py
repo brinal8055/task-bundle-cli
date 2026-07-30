@@ -52,24 +52,15 @@ def create_synthetic_validation_bundle(
     isolation = isolation_context / "solve.sh"
     isolation.write_text(_hidden_isolation_solver())
     isolation.chmod(0o755)
-    runner = bundle / "evaluation/run-tests.sh"
-    runner.write_text(
+    prepare = bundle / "evaluation/prepare.sh"
+    prepare.write_text(
         "#!/bin/sh\n"
-        "set +e\n"
-        "export HOME=/tmp/task-bundle-home\n"
-        "export GOCACHE=/tmp/task-bundle-go-cache\n"
-        "export GOTMPDIR=/evaluation/output/go-tmp\n"
-        "mkdir -p \"$HOME\" \"$GOCACHE\" \"$GOTMPDIR\"\n"
-        "go test -json ./... > /evaluation/output/go-test.json\n"
-        "status=$?\n"
-        "go run /evaluation/harness/parse-results.go "
-        "/evaluation/input/plan.json "
-        "/evaluation/output/go-test.json "
-        "/evaluation/output/results.json \"$status\"\n"
-        "exit \"$status\"\n",
+        "set -eu\n"
+        "mkdir -p /workspace/task-bundle-home /workspace/task-bundle-go-cache "
+        "/workspace/task-bundle-go-tmp\n",
     )
-    runner.chmod(0o755)
-    (bundle / "evaluation/parse-results.go").write_text(_go_parser())
+    prepare.chmod(0o755)
+    (bundle / "evaluation/adapter.go").write_text(_go_adapter())
     mapping: dict[str, Any] = {
         "schema_version": "1",
         "task": {"id": "synthetic-go-calculator", "title": "Go calculator"},
@@ -99,9 +90,28 @@ def create_synthetic_validation_bundle(
         "evaluation": {
             "test_patch": "evaluation/hidden/test.patch",
             "golden_patch": "evaluation/hidden/golden.patch",
+            "prepare": {
+                "command": ["/evaluation/harness/prepare.sh"],
+                "network": False,
+            },
             "runner": {
-                "command": ["/evaluation/harness/run-tests.sh"],
-                "result_file": "/evaluation/output/results.json",
+                "build_plan": [
+                    "/usr/bin/env",
+                    "HOME=/workspace",
+                    "GOCACHE=/workspace/.trusted-go-cache",
+                    "TMPDIR=/workspace",
+                    "go",
+                    "run",
+                    "/evaluation/harness/adapter.go",
+                    "build-plan",
+                ],
+                "parse_result": [
+                    "go",
+                    "run",
+                    "/evaluation/harness/adapter.go",
+                    "parse-result",
+                ],
+                "adapter_contract_version": "2",
                 "result_schema_version": "1",
             },
             "pass_to_pass": [{"selector": "TestSubtract"}],
@@ -219,14 +229,16 @@ cp /tmp/calculator.go calculator.go
 """
 
 
-def _go_parser() -> str:
+def _go_adapter() -> str:
     return r'''package main
 
 import (
     "bufio"
+    "bytes"
     "encoding/json"
+    "fmt"
     "os"
-    "strconv"
+    "regexp"
     "time"
 )
 
@@ -236,6 +248,34 @@ type selector struct {
 type plan struct {
     PassToPass []selector `json:"pass_to_pass"`
     FailToPass []selector `json:"fail_to_pass"`
+    TimeoutSeconds int `json:"timeout_seconds"`
+}
+type executionPlanItem struct {
+    ExecutionID string `json:"execution_id"`
+    RequestedSelectors []string `json:"requested_selectors"`
+    Argv []string `json:"argv"`
+    TimeoutSeconds int `json:"timeout_seconds"`
+}
+type executionPlan struct {
+    SchemaVersion string `json:"schema_version"`
+    Executions []executionPlanItem `json:"executions"`
+}
+type capturedExecution struct {
+    ExecutionID string `json:"execution_id"`
+    RequestedSelectors []string `json:"requested_selectors"`
+    Argv []string `json:"argv"`
+    StartedAt string `json:"started_at"`
+    FinishedAt string `json:"finished_at"`
+    DurationMS int `json:"duration_ms"`
+    ExitCode *int `json:"exit_code"`
+    TimedOut bool `json:"timed_out"`
+    Stdout string `json:"stdout"`
+    Stderr string `json:"stderr"`
+    StdoutTruncated bool `json:"stdout_truncated"`
+    StderrTruncated bool `json:"stderr_truncated"`
+}
+type capturedSet struct {
+    Executions []capturedExecution `json:"executions"`
 }
 type event struct {
     Action string `json:"Action"`
@@ -261,62 +301,135 @@ type result struct {
     Tests []testResult `json:"tests"`
 }
 
-func main() {
-    started := time.Now().UTC()
-    planBytes, err := os.ReadFile(os.Args[1])
+func requestedSelectors(value plan) []selector {
+    return append(value.PassToPass, value.FailToPass...)
+}
+
+func buildPlan() error {
+    planBytes, err := os.ReadFile("/evaluation/input/plan.json")
     if err != nil { panic(err) }
     var requested plan
-    if err := json.Unmarshal(planBytes, &requested); err != nil { panic(err) }
-    input, err := os.Open(os.Args[2])
-    if err != nil { panic(err) }
-    defer input.Close()
-    observed := map[string]event{}
-    scanner := bufio.NewScanner(input)
-    for scanner.Scan() {
-        var item event
-        if json.Unmarshal(scanner.Bytes(), &item) == nil && item.Test != "" {
-            if item.Action == "pass" || item.Action == "fail" || item.Action == "skip" {
-                observed[item.Test] = item
-            }
-        }
-    }
-    if err := scanner.Err(); err != nil { panic(err) }
-    selectors := append(requested.PassToPass, requested.FailToPass...)
-    tests := make([]testResult, 0, len(selectors))
-    for _, wanted := range selectors {
-        item, ok := observed[wanted.Selector]
-        status := "missing"
-        if ok {
-            statuses := map[string]string{
-                "pass":"passed", "fail":"failed", "skip":"skipped",
-            }
-            status = statuses[item.Action]
-        }
-        tests = append(tests, testResult{
-            RequestedSelector: wanted.Selector,
-            ObservedID: wanted.Selector,
-            Status: status,
-            DurationMS: int(item.Elapsed * 1000),
+    if err := json.Unmarshal(planBytes, &requested); err != nil { return err }
+    executions := []executionPlanItem{}
+    for index, wanted := range requestedSelectors(requested) {
+        executions = append(executions, executionPlanItem{
+            ExecutionID: fmt.Sprintf("selector-%03d", index + 1),
+            RequestedSelectors: []string{wanted.Selector},
+            Argv: []string{
+                "/usr/bin/env",
+                "HOME=/workspace/task-bundle-home",
+                "GOCACHE=/workspace/task-bundle-go-cache",
+                "GOTMPDIR=/workspace/task-bundle-go-tmp",
+                "go", "test", "-json", "-run",
+                "^" + regexp.QuoteMeta(wanted.Selector) + "$", ".",
+            },
+            TimeoutSeconds: requested.TimeoutSeconds,
         })
     }
-    exitCode, err := strconv.Atoi(os.Args[4])
-    if err != nil { panic(err) }
+    return json.NewEncoder(os.Stdout).Encode(executionPlan{
+        SchemaVersion: "2",
+        Executions: executions,
+    })
+}
+
+func parseResult() error {
+    payload, err := os.ReadFile("/evaluation/trusted/executions.json")
+    if err != nil { return err }
+    var captured capturedSet
+    if err := json.Unmarshal(payload, &captured); err != nil { return err }
+    tests := []testResult{}
+    collectionSucceeded := true
+    maximumExit := 0
+    for _, execution := range captured.Executions {
+        if len(execution.RequestedSelectors) != 1 {
+            return fmt.Errorf("synthetic adapter requires one selector per execution")
+        }
+        requestedSelector := execution.RequestedSelectors[0]
+        status := "error"
+        elapsed := execution.DurationMS
+        observedID := requestedSelector
+        if execution.StdoutTruncated || execution.StderrTruncated {
+            return fmt.Errorf("captured test output was truncated")
+        }
+        if execution.TimedOut {
+            status = "timeout"
+        } else {
+            observed := map[string]event{}
+            scanner := bufio.NewScanner(bytes.NewReader([]byte(execution.Stdout)))
+            for scanner.Scan() {
+                var item event
+                if json.Unmarshal(scanner.Bytes(), &item) == nil && item.Test != "" {
+                    if item.Action == "pass" || item.Action == "fail" ||
+                        item.Action == "skip" {
+                        observed[item.Test] = item
+                    }
+                }
+            }
+            if err := scanner.Err(); err != nil { return err }
+            item, ok := observed[requestedSelector]
+            if !ok {
+                status = "missing"
+                collectionSucceeded = false
+                observedID = ""
+            } else {
+                statuses := map[string]string{
+                    "pass": "passed", "fail": "failed", "skip": "skipped",
+                }
+                status = statuses[item.Action]
+                elapsed = int(item.Elapsed * 1000)
+            }
+        }
+        if execution.ExitCode != nil && *execution.ExitCode > maximumExit {
+            maximumExit = *execution.ExitCode
+        }
+        if execution.ExitCode != nil && *execution.ExitCode > 1 {
+            collectionSucceeded = false
+        }
+        tests = append(tests, testResult{
+            RequestedSelector: requestedSelector,
+            ObservedID: observedID,
+            Status: status,
+            DurationMS: elapsed,
+        })
+    }
+    started := time.Now().UTC().Format(time.RFC3339Nano)
+    finished := started
+    if len(captured.Executions) > 0 {
+        started = captured.Executions[0].StartedAt
+        finished = captured.Executions[len(captured.Executions)-1].FinishedAt
+    }
     output := result{
         SchemaVersion: "1",
         Framework: "go-test-json",
         HarnessStatus: "completed",
-        CollectionSucceeded: true,
-        ExecutionStarted: true,
-        Command: []string{"go", "test", "-json", "./..."},
-        StartedAt: started.Format(time.RFC3339Nano),
-        FinishedAt: time.Now().UTC().Format(time.RFC3339Nano),
-        ExitCode: exitCode,
+        CollectionSucceeded: collectionSucceeded,
+        ExecutionStarted: len(captured.Executions) > 0,
+        Command: []string{"go", "test", "-json", "-run", "<selector>", "."},
+        StartedAt: started,
+        FinishedAt: finished,
+        ExitCode: maximumExit,
         Tests: tests,
     }
-    destination, err := os.Create(os.Args[3])
-    if err != nil { panic(err) }
-    defer destination.Close()
-    encoder := json.NewEncoder(destination)
-    if err := encoder.Encode(output); err != nil { panic(err) }
+    if !collectionSucceeded {
+        output.HarnessStatus = "collection_failed"
+    }
+    return json.NewEncoder(os.Stdout).Encode(output)
+}
+
+func main() {
+    var err error
+    if len(os.Args) != 2 {
+        err = fmt.Errorf("usage: adapter build-plan|parse-result")
+    } else if os.Args[1] == "build-plan" {
+        err = buildPlan()
+    } else if os.Args[1] == "parse-result" {
+        err = parseResult()
+    } else {
+        err = fmt.Errorf("unknown adapter mode")
+    }
+    if err != nil {
+        fmt.Fprintln(os.Stderr, err)
+        os.Exit(2)
+    }
 }
 '''

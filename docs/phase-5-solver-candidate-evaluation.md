@@ -126,12 +126,22 @@ The golden patch is absent. All P2P and F2P selectors must map exactly once and
 pass for `resolved`. A complete harness with ordinary test failures is
 `unresolved`, not infrastructure failure.
 
-Candidate code runs in the same evaluator as the task-owned harness and may try
-to spoof `/evaluation/output/results.json`. The host rejects symlinks, unsafe
-path components, oversized or malformed data, incomplete/duplicate selector
-mapping, and non-completed harness state. This is schema and completeness
-validation, not cryptographic separation between candidate code and harness
-output.
+Candidate/test execution runs as the configured non-root UID under task-owned
+adapter contract version `2`. Docker captures structured argv, stdout/stderr,
+exit, timeout, timestamps, duration, and truncation state. The candidate
+container is stopped and verified to have no PID and no restart policy before
+captured records are staged read-only. A separate non-root trusted parser with
+no candidate workspace emits the only accepted normalized result through
+bounded stdout; candidate-created result files and raw framework artifacts are
+never accepted or used as fallback.
+
+Validated captured records and completed execution logs are persisted before
+the parser starts. If parsing fails, this pre-parser evidence remains available,
+but no normalized result or selector classification is created.
+
+Candidate code executing inside the test process may still interfere with that
+process. This is a direct final-result and post-exit race boundary, not
+cryptographic in-process test integrity.
 
 ## Persistence, artifacts, and `task show`
 

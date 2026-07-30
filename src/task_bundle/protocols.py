@@ -3,7 +3,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
-from task_bundle.models import EvaluationPlan, NormalizedResult
+from task_bundle.models import (
+    CapturedTestExecutions,
+    EvaluationPlan,
+    NormalizedResult,
+    TestExecutionPlan,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,6 +79,10 @@ class Solver(Protocol):
 
 @runtime_checkable
 class TestAdapter(Protocol):
-    def create_plan(self, plan: EvaluationPlan, destination: Path) -> None: ...
+    def create_plan(self, plan: EvaluationPlan) -> TestExecutionPlan: ...
 
-    def parse_results(self, result_file: Path) -> NormalizedResult: ...
+    def parse_results(
+        self,
+        plan: TestExecutionPlan,
+        captured: CapturedTestExecutions,
+    ) -> NormalizedResult: ...

@@ -175,7 +175,7 @@ def _create_python_validation_bundle(
         " def subtract(a: int, b: int) -> int:\n"
         "     return a - b\n",
     )
-    runner = bundle / "evaluation/run-tests.py"
+    runner = bundle / "evaluation/adapter.py"
     runner.write_text(_python_runner())
     runner.chmod(0o755)
     mapping: dict[str, Any] = {
@@ -209,8 +209,17 @@ def _create_python_validation_bundle(
             "test_patch": "evaluation/hidden/test.patch",
             "golden_patch": "evaluation/hidden/golden.patch",
             "runner": {
-                "command": ["/usr/local/bin/python3", "/evaluation/harness/run-tests.py"],
-                "result_file": "/evaluation/output/results.json",
+                "build_plan": [
+                    "/usr/local/bin/python3",
+                    "/evaluation/harness/adapter.py",
+                    "build-plan",
+                ],
+                "parse_result": [
+                    "/usr/local/bin/python3",
+                    "/evaluation/harness/adapter.py",
+                    "parse-result",
+                ],
+                "adapter_contract_version": "2",
                 "result_schema_version": "1",
             },
             "pass_to_pass": [{"selector": "TestSubtract"}],
@@ -234,38 +243,112 @@ def _python_runner() -> str:
         from datetime import UTC, datetime
         from pathlib import Path
 
-        sys.path.insert(0, "/workspace/repo")
-        from calculator import add, subtract
-        from hidden_cases import NEGATIVE, POSITIVE
+        PLAN = Path("/evaluation/input/plan.json")
+        CAPTURED = Path("/evaluation/trusted/executions.json")
 
-        started = datetime.now(UTC)
-        checks = {
-            "TestSubtract": subtract(5, 3) == 2,
-            "TestAddPositive": add(*POSITIVE[:2]) == POSITIVE[2],
-            "TestAddNegative": add(*NEGATIVE[:2]) == NEGATIVE[2],
-        }
-        result = {
-            "schema_version": "1",
-            "framework": "synthetic-python",
-            "harness_status": "completed",
-            "collection_succeeded": True,
-            "execution_started": True,
-            "command": ["synthetic-python"],
-            "started_at": started.isoformat(),
-            "finished_at": datetime.now(UTC).isoformat(),
-            "exit_code": 0 if all(checks.values()) else 1,
-            "tests": [
+
+        def selectors(plan):
+            return [
+                *(item["selector"] for item in plan["pass_to_pass"]),
+                *(item["selector"] for item in plan["fail_to_pass"]),
+            ]
+
+
+        def build_plan():
+            plan = json.loads(PLAN.read_text())
+            executions = [
                 {
-                    "requested_selector": selector,
-                    "observed_id": selector,
-                    "status": "passed" if passed else "failed",
-                    "duration_ms": 0,
+                    "execution_id": f"selector-{index:03d}",
+                    "requested_selectors": [selector],
+                    "argv": [
+                        sys.executable,
+                        "/evaluation/harness/adapter.py",
+                        "run-selector",
+                        selector,
+                    ],
+                    "timeout_seconds": plan["timeout_seconds"],
                 }
-                for selector, passed in checks.items()
-            ],
-        }
-        output = Path("/evaluation/output/results.json")
-        output.write_text(json.dumps(result), encoding="utf-8")
-        raise SystemExit(result["exit_code"])
+                for index, selector in enumerate(selectors(plan), start=1)
+            ]
+            print(json.dumps({"schema_version": "2", "executions": executions}))
+            return 0
+
+
+        def run_selector(selector):
+            sys.path.insert(0, "/workspace/repo")
+            from calculator import add, subtract
+            from hidden_cases import NEGATIVE, POSITIVE
+
+            checks = {
+                "TestSubtract": subtract(5, 3) == 2,
+                "TestAddPositive": add(*POSITIVE[:2]) == POSITIVE[2],
+                "TestAddNegative": add(*NEGATIVE[:2]) == NEGATIVE[2],
+            }
+            return 0 if checks.get(selector, False) else 1
+
+
+        def parse_result():
+            captured = json.loads(CAPTURED.read_text())["executions"]
+            tests = []
+            collection_succeeded = True
+            for execution in captured:
+                selectors = execution["requested_selectors"]
+                if len(selectors) != 1:
+                    raise ValueError("synthetic adapter requires one selector per execution")
+                if execution["stdout_truncated"] or execution["stderr_truncated"]:
+                    raise ValueError("captured test output was truncated")
+                selector = selectors[0]
+                if execution["timed_out"]:
+                    status = "timeout"
+                elif execution["exit_code"] == 0:
+                    status = "passed"
+                elif execution["exit_code"] == 1:
+                    status = "failed"
+                else:
+                    status = "error"
+                    collection_succeeded = False
+                tests.append(
+                    {
+                        "requested_selector": selector,
+                        "observed_id": selector,
+                        "status": status,
+                        "duration_ms": execution["duration_ms"],
+                        "message": (execution["stderr"] or execution["stdout"])[:16384]
+                        or None,
+                    }
+                )
+            result = {
+                "schema_version": "1",
+                "framework": "synthetic-python-exit-code",
+                "harness_status": (
+                    "completed" if collection_succeeded else "collection_failed"
+                ),
+                "collection_succeeded": collection_succeeded,
+                "execution_started": bool(captured),
+                "command": ["per-selector", "synthetic-python"],
+                "started_at": captured[0]["started_at"],
+                "finished_at": captured[-1]["finished_at"],
+                "exit_code": max(
+                    (
+                        item["exit_code"]
+                        for item in captured
+                        if item["exit_code"] is not None
+                    ),
+                    default=0,
+                ),
+                "tests": tests,
+            }
+            print(json.dumps(result))
+            return 0
+
+
+        mode = sys.argv[1]
+        if mode == "build-plan":
+            raise SystemExit(build_plan())
+        if mode == "run-selector":
+            raise SystemExit(run_selector(sys.argv[2]))
+        if mode == "parse-result":
+            raise SystemExit(parse_result())
+        raise SystemExit(2)
         """
     )

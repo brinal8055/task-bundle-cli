@@ -33,10 +33,15 @@ evaluation:
   test_patch: evaluation/hidden/test.patch
   golden_patch: evaluation/hidden/golden.patch
   runner:
-    command:
+    build_plan:
       - python
-      - /evaluation/harness/run-tests.py
-    result_file: /evaluation/output/results.json
+      - /evaluation/harness/adapter.py
+      - build-plan
+    parse_result:
+      - python
+      - /evaluation/harness/adapter.py
+      - parse-result
+    adapter_contract_version: "2"
     result_schema_version: "1"
   pass_to_pass:
     - selector: synthetic::readme

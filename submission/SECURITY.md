@@ -16,7 +16,13 @@ the synthetic lifecycle:
 - bounded workspace export with safe regular files and relative symlinks;
 - regenerated binary patch, complete manifest round-trip, policy, and hidden
   conflict checks before fresh evaluator creation;
-- exact-once task-owned selector mapping into the normalized schema;
+- adapter contract version `2` with task-owned grouped execution plans;
+- Docker-captured argv, stdout/stderr, exit, timeout, and truncation state;
+- proven candidate shutdown before a separate non-root trusted parser;
+- no candidate-writable accepted normalized-result path;
+- exact-once requested/observed selector mapping with fail-closed truncation;
+- full image `/opt/task/repo` export, normalized manifest, and raw-tree equality;
+- rejection of Docker volumes overlapping the protected image source path;
 - automatic container and volume cleanup.
 
 The official benchmark image is used only as a digest-pinned dependency base.
@@ -26,3 +32,7 @@ the image's `/app` checkout—is tested.
 
 OpenLibrary is intentionally still rejected for unsupported Gitlinks. No
 source validation or isolation property was weakened to close the submission.
+
+Candidate code executing inside pytest can still interfere with pytest itself.
+The remediation prevents direct final-result spoofing and post-test overwrite
+races; it does not claim a cryptographically isolated in-process oracle.

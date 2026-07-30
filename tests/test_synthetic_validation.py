@@ -14,7 +14,26 @@ def test_synthetic_validation_bundle_and_patch_order_are_valid(tmp_path: Path) -
     )
     loaded = load_bundle(bundle)
 
-    assert loaded.task.evaluation.prepare is None
+    assert loaded.task.evaluation.prepare is not None
+    assert loaded.task.evaluation.prepare.command == [
+        "/evaluation/harness/prepare.sh"
+    ]
+    assert loaded.task.evaluation.runner.build_plan == [
+        "/usr/bin/env",
+        "HOME=/workspace",
+        "GOCACHE=/workspace/.trusted-go-cache",
+        "TMPDIR=/workspace",
+        "go",
+        "run",
+        "/evaluation/harness/adapter.go",
+        "build-plan",
+    ]
+    assert loaded.task.evaluation.runner.parse_result == [
+        "go",
+        "run",
+        "/evaluation/harness/adapter.go",
+        "parse-result",
+    ]
     assert loaded.task.evaluation.repeat == 2
     assert len(loaded.task.evaluation.fail_to_pass) == 2
 

@@ -1,4 +1,7 @@
 import json
+import shutil
+import subprocess
+import tempfile
 from collections.abc import Iterator, Sequence
 from contextlib import AbstractContextManager, contextmanager
 from datetime import UTC, datetime
@@ -15,7 +18,7 @@ from task_bundle.source.validation import normalize_repository_url
 
 
 class StaticSourceFactory:
-    def __init__(self, root: Path, *, tree_sha: str = "b" * 40) -> None:
+    def __init__(self, root: Path, *, tree_sha: str | None = None) -> None:
         if not root.exists():
             root.mkdir()
             (root / "README.md").write_text("source\n", encoding="utf-8")
@@ -25,7 +28,7 @@ class StaticSourceFactory:
             tool.chmod(0o755)
             (root / "tool-link").symlink_to("bin/tool")
         self.root = root
-        self.tree_sha = tree_sha
+        self.tree_sha = tree_sha or _source_tree_sha(root)
         self.calls = 0
 
     def __call__(
@@ -71,6 +74,7 @@ class FakeDockerRunner:
         *,
         fail_on: str | None = None,
         actual_platform: str | None = None,
+        declared_volumes: tuple[str, ...] = (),
     ) -> None:
         self.environment_info = DockerEnvironment(
             executable="/usr/local/bin/docker",
@@ -82,6 +86,7 @@ class FakeDockerRunner:
         )
         self.fail_on = fail_on
         self.actual_platform = actual_platform
+        self.declared_volumes = declared_volumes
         self.commands: list[tuple[str, ...]] = []
         self.images: dict[str, dict[str, object]] = {}
         self.last_result: DockerCommandResult | None = None
@@ -90,6 +95,7 @@ class FakeDockerRunner:
         self.context_top_level: tuple[str, ...] = ()
         self.context_paths: tuple[str, ...] = ()
         self.dockerfile = b""
+        self.repository_source: Path | None = None
 
     def run(
         self,
@@ -140,6 +146,18 @@ class FakeDockerRunner:
             return self._result(stdout=json.dumps(image))
         if operation == "create":
             return self._result(stdout=f"{'c' * 64}\n")
+        if (
+            operation == "cp"
+            and command[1].endswith(":/opt/task/repo/.")
+            and self.repository_source is not None
+        ):
+            shutil.copytree(
+                self.repository_source,
+                Path(command[2]),
+                dirs_exist_ok=True,
+                symlinks=True,
+            )
+            return self._result()
         if operation == "start":
             return self._result(stdout="smoke ok\n")
         if operation == "rm":
@@ -156,6 +174,7 @@ class FakeDockerRunner:
                 name, label_value = command[index + 1].split("=", 1)
                 labels[name] = label_value
         context = Path(command[-1])
+        self.repository_source = context / "repo"
         self.context_top_level = tuple(sorted(path.name for path in context.iterdir()))
         self.context_paths = tuple(
             sorted(
@@ -180,6 +199,7 @@ class FakeDockerRunner:
                 "User": "1000:1000",
                 "WorkingDir": "/workspace/repo",
                 "Labels": labels,
+                "Volumes": dict.fromkeys(self.declared_volumes) or None,
             },
             "Size": 1024,
         }
@@ -228,6 +248,28 @@ class FakeDockerRunner:
         if "--build-arg" not in command:
             return ""
         return command[command.index("--build-arg") + 1]
+
+
+def _source_tree_sha(source: Path) -> str:
+    with tempfile.TemporaryDirectory(prefix="task-bundle-test-tree-") as temporary:
+        repository = Path(temporary) / "repository"
+        shutil.copytree(source, repository, symlinks=True)
+        for args in (("init", "-q"), ("add", "-A")):
+            subprocess.run(
+                ["git", *args],
+                cwd=repository,
+                check=True,
+                capture_output=True,
+                shell=False,
+            )
+        return subprocess.run(
+            ["git", "write-tree"],
+            cwd=repository,
+            check=True,
+            capture_output=True,
+            shell=False,
+            text=True,
+        ).stdout.strip()
 
 
 def all_artifact_bytes(bundle: Path) -> bytes:

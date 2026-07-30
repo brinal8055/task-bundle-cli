@@ -92,6 +92,28 @@ records and validates:
 An actual-platform mismatch is a hard failure. Host-versus-requested
 architecture is reported as an emulation warning.
 
+Declared `Config.Volumes` entries are normalized as absolute POSIX container
+paths. A volume at, above, or below `/opt/task/repo` fails with
+`IMAGE_SOURCE_VOLUME_CONFLICT` before any source-verification, smoke, or runtime
+container is created. Component comparison avoids treating unrelated
+`/opt/task/repository` or `/opt/task/repo-cache` paths as conflicts.
+
+## Complete image/source equality
+
+After inspection, the CLI creates a stopped container from the immutable image
+ID and exports `/opt/task/repo` into a controlled temporary host directory.
+The host walks the export without following symlinks and rejects `.git`,
+special files, hard links, unsafe paths/targets, case collisions, and unsupported
+types. It compares every expected and actual entry by relative path, type,
+regular-file SHA-256/size/executable mode, and symlink target.
+
+The exported manifest must have the locked normalized source digest. Trusted
+raw Git plumbing then reconstructs `100644`, `100755`, and `120000` entries and
+requires the resulting tree SHA to equal the verified source tree. This uses no
+working-tree filters, attributes, LFS, EOL conversion, or in-image integrity
+command. Differences fail with `IMAGE_SOURCE_MISMATCH` and bounded added,
+removed, changed, mode-changed, and type-changed path lists.
+
 ## Restricted smoke check
 
 No task tests run during Phase 3. The smoke check creates a short-lived
@@ -113,7 +135,8 @@ attempted in `finally` on success, failure, timeout, and interruption.
 ## Bundle lock and freshness
 
 The final lock is atomically written only after source verification, context
-construction, Docker build, inspection, platform validation, and smoke success:
+construction, Docker build, inspection, volume-policy validation, full exported
+source/manifest/raw-tree equality, platform validation, and smoke success:
 
 ```text
 .task/bundle.lock.json

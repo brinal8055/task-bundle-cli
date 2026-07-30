@@ -1,5 +1,10 @@
 # SWE-bench Pro: OpenLibrary Project Runeberg
 
+This is a preserved unsupported-source example, not a runnable Task Bundle
+lifecycle. Provenance and selector semantics remain verified, but the exact
+source tree contains Gitlinks at `vendor/infogami` and `vendor/js/wmd`;
+`task init` correctly fails with `SOURCE_SUBMODULE_UNSUPPORTED`.
+
 This bundle imports one immutable record from `ScaleAI/SWE-bench_Pro` at
 revision `7ab5114912baf22bb098818e604c02fe7ad2c11f`.
 

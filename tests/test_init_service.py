@@ -57,7 +57,11 @@ def test_init_builds_inspects_smokes_locks_and_records(tmp_path: Path) -> None:
     assert not any("evaluation" in path or ".task" in path for path in docker.context_paths)
     build = next(command for command in docker.commands if command[0] == "build")
     assert "--no-cache" in build
-    smoke = next(command for command in docker.commands if command[0] == "create")
+    smoke = next(
+        command
+        for command in docker.commands
+        if command[0] == "create" and "--network" in command
+    )
     for required in (
         "--network",
         "none",
@@ -195,6 +199,22 @@ def test_smoke_failure_always_removes_container_and_writes_no_lock(
     assert not (bundle / LOCK_RELATIVE_PATH).exists()
     artifact_root = next((bundle / "artifacts/example-task").iterdir())
     assert (artifact_root / "smoke/docker-command.json").is_file()
+
+
+def test_source_volume_conflict_fails_before_container_creation_or_lock(
+    tmp_path: Path,
+) -> None:
+    bundle = create_bundle(tmp_path / "bundle")
+    source = StaticSourceFactory(tmp_path / "source")
+    docker = FakeDockerRunner(declared_volumes=("/opt/task/repo/cache",))
+    service, _ = _service(tmp_path, source, docker)
+
+    with pytest.raises(TaskBundleError) as caught:
+        service.run(bundle, InitOptions())
+
+    assert caught.value.code == ErrorCode.IMAGE_SOURCE_VOLUME_CONFLICT
+    assert not any(command[0] == "create" for command in docker.commands)
+    assert not (bundle / LOCK_RELATIVE_PATH).exists()
 
 
 def test_source_failure_is_recorded_with_artifacts_and_without_lock(

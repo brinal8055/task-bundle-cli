@@ -31,11 +31,19 @@ _GIT_CONFIG = (
 
 
 class CandidateBuilder:
-    def __init__(self, temporary_root: Path) -> None:
+    def __init__(
+        self,
+        temporary_root: Path,
+        *,
+        error_code: ErrorCode = ErrorCode.CANDIDATE_TREE_ERROR,
+        phase: str = "candidate-extraction",
+    ) -> None:
         self.home = temporary_root / "git-home"
         self.environment = sanitized_git_environment(self.home)
         self.git = detect_git(self.environment).executable
         self.repository = temporary_root / "objects.git"
+        self.error_code = error_code
+        self.phase = phase
         self._run(("init", "--bare", str(self.repository)), cwd=temporary_root)
 
     def build(
@@ -96,6 +104,19 @@ class CandidateBuilder:
         )
         return candidate, patch
 
+    def write_tree(
+        self,
+        root: Path,
+        manifest: FilesystemManifest,
+        *,
+        index_name: str,
+    ) -> str:
+        return self._write_tree(
+            root,
+            manifest,
+            self.repository.parent / index_name,
+        )
+
     def _write_tree(
         self,
         root: Path,
@@ -113,7 +134,7 @@ class CandidateBuilder:
                         raise OSError("symlink target changed during tree construction")
                     payload = target.encode()
                 except (OSError, UnicodeEncodeError) as error:
-                    _candidate_error(
+                    self._error(
                         ErrorCode.CANDIDATE_TREE_ERROR,
                         "Candidate symlink could not be hashed.",
                         f"{entry.path}: {error}",
@@ -123,8 +144,8 @@ class CandidateBuilder:
                 payload = read_manifest_file(
                     root,
                     entry,
-                    phase="candidate-tree",
-                    error_code=ErrorCode.CANDIDATE_TREE_ERROR,
+                    phase=self.phase,
+                    error_code=self.error_code,
                 )
                 mode = "100755" if entry.mode == "0755" else "100644"
             object_id = self._run(
@@ -217,10 +238,10 @@ class CandidateBuilder:
                 check=False,
             )
         except (OSError, subprocess.TimeoutExpired) as error:
-            _candidate_error(error_code, "Trusted Git plumbing failed.", str(error))
+            self._error(error_code, "Trusted Git plumbing failed.", str(error))
         if result.returncode != 0:
             stderr = result.stderr.decode("utf-8", errors="replace").strip()[:2000]
-            _candidate_error(
+            self._error(
                 error_code,
                 "Trusted Git plumbing rejected the candidate.",
                 f"exit {result.returncode}: {stderr}",
@@ -228,6 +249,19 @@ class CandidateBuilder:
         if binary_output:
             return result.stdout
         return result.stdout.decode("ascii").strip()
+
+    def _error(self, code: ErrorCode, message: str, actual: str) -> NoReturn:
+        selected = self.error_code if code == ErrorCode.CANDIDATE_TREE_ERROR else code
+        raise TaskBundleError(
+            selected,
+            message,
+            ErrorContext(
+                phase=self.phase,
+                expected="A safe exact raw Git tree",
+                actual=actual[:2000],
+                corrective_action="Inspect the verified filesystem manifest.",
+            ),
+        )
 
 
 def verify_baseline_manifest(

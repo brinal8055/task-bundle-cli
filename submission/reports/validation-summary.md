@@ -41,14 +41,18 @@ at the two source Gitlinks. See `openlibrary-blocker.md`.
 
 Selected supported Ansible task:
 
-- init command: `cmd_ead91f81c1534e468029b0c977327422`
-- validation command: `cmd_95994ac450a94272bf1d163c09ede125`
-- validation identity: `val_44a4f3d3180ec8101c04d572ef9d8e10`
+- init command: `cmd_d326a7f751fe4f30b908509ef66ab691`
+- validation command: `cmd_ce2d13ef592844bb8e3bb840165f4dd0`
+- validation identity: `val_8834fc8c0a1d5fd85c0af82e11299f8c`
 - bundle digest:
-  `sha256:5e70d5e6c559d9c2267ec13b2d8ba04b6944012792dda3e5b58c8d8fd2a426bd`
+  `sha256:8ff827c8fcbeb6a4f3d41bca36140401b2d486d36be1bd1212c0a015d26ac1c2`
 - source tree SHA: `64a85753dada2a0a05dcf13093dabbdae13cc7de`
 - image ID:
-  `sha256:1588d122d2722c2586e41b7abc2c4c0f4cb7e046ddb90a7c886f1c1ddf2bba08`
+  `sha256:eb28ca0a71e1b09885622ab752d23126c797f1bfb5d75d09540b03027fa93b85`
+- harness digest:
+  `sha256:c91055236e7fa06a17204455cd1082a5d4b6dd873fe56e45d3606f6a1bbe70df`
 - baseline: P2P 1/1 passed; F2P 1/1 failed as configured
 - golden: P2P 1/1 passed; F2P 1/1 passed
-- cleanup: complete, no retained evaluator containers
+- adapter contract: version 2, grouped pytest execution, strict observed IDs
+- parser: dedicated non-root `65532:65532`, candidate shutdown proven first
+- cleanup: complete, no retained evaluator containers or volumes

@@ -73,6 +73,7 @@ class ImageInspection(StrictModel):
     created: str | None = None
     configured_user: str | None = None
     working_directory: str | None = None
+    declared_volumes: tuple[str, ...] = ()
     labels: dict[str, str]
     size_bytes: int = Field(ge=0)
 

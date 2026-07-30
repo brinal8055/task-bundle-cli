@@ -26,6 +26,7 @@ def load_normalized_result(
     phase: EvaluationPhase,
     repeat_index: int,
 ) -> tuple[bytes, NormalizedResult]:
+    """Load normalized output from a host-controlled trusted-parser artifact."""
     try:
         metadata = path.lstat()
     except FileNotFoundError:
@@ -52,7 +53,7 @@ def load_normalized_result(
         _result_error(
             ErrorCode.TEST_RESULT_SCHEMA_ERROR,
             "Test result path is not a regular file.",
-            "A regular file inside /evaluation/output",
+            "A regular host-controlled trusted-parser result artifact",
             "The result path is a symlink or special file.",
             phase,
             repeat_index,
@@ -70,16 +71,52 @@ def load_normalized_result(
         )
     try:
         payload = path.read_bytes()
-        raw = json.loads(payload)
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+    except OSError as error:
         _result_error(
             ErrorCode.TEST_PARSE_ERROR,
-            "Test result file is malformed.",
-            "UTF-8 JSON matching normalized result schema 1",
+            "Test result file could not be read.",
+            "Readable UTF-8 JSON matching normalized result schema 1",
             str(error),
             phase,
             repeat_index,
             path,
+        )
+    return parse_normalized_result(
+        payload,
+        phase=phase,
+        repeat_index=repeat_index,
+        source=path,
+    )
+
+
+def parse_normalized_result(
+    payload: bytes,
+    *,
+    phase: EvaluationPhase,
+    repeat_index: int,
+    source: Path,
+) -> tuple[bytes, NormalizedResult]:
+    if len(payload) > MAX_RESULT_BYTES:
+        _result_error(
+            ErrorCode.TEST_RESULT_TOO_LARGE,
+            "Trusted parser output exceeds the size limit.",
+            f"At most {MAX_RESULT_BYTES} bytes",
+            f"{len(payload)} bytes",
+            phase,
+            repeat_index,
+            source,
+        )
+    try:
+        raw = json.loads(payload)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        _result_error(
+            ErrorCode.TEST_PARSE_ERROR,
+            "Trusted parser output is malformed.",
+            "UTF-8 JSON matching normalized result schema 1",
+            str(error),
+            phase,
+            repeat_index,
+            source,
         )
     if not isinstance(raw, dict):
         _result_error(
@@ -89,7 +126,7 @@ def load_normalized_result(
             type(raw).__name__,
             phase,
             repeat_index,
-            path,
+            source,
         )
     try:
         result = NormalizedResult.model_validate(raw)
@@ -101,7 +138,7 @@ def load_normalized_result(
             f"{error.error_count()} validation error(s)",
             phase,
             repeat_index,
-            path,
+            source,
             details={"errors": json.loads(error.json(include_url=False))},
         )
     for test in result.tests:
@@ -113,7 +150,7 @@ def load_normalized_result(
                 f"{len(test.message)} characters",
                 phase,
                 repeat_index,
-                path,
+                source,
                 selector=test.requested_selector,
             )
     return payload, result

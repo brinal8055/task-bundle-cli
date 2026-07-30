@@ -1,10 +1,15 @@
+import json
 import os
 import stat
 import tempfile
 import time
+from collections.abc import Callable
 from dataclasses import dataclass, replace
-from pathlib import Path, PurePosixPath
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Protocol
+
+from pydantic import ValidationError
 
 from task_bundle.bundle.canonical import sha256_digest
 from task_bundle.bundle.loader import LoadedBundle
@@ -12,19 +17,23 @@ from task_bundle.errors import ErrorCode, ErrorContext, TaskBundleError
 from task_bundle.image.docker import DockerCommandResult, DockerRunner
 from task_bundle.image.models import BundleLock, RuntimePolicy
 from task_bundle.models import (
+    CapturedTestExecution,
+    CapturedTestExecutions,
     EvaluationPhase,
     EvaluationPlan,
     InputManifestEntry,
+    TestExecution,
+    TestExecutionPlan,
 )
 from task_bundle.source.validation import validate_symlink_target
 from task_bundle.validation.models import EvaluationStatus, EvaluatorExecution
 from task_bundle.validation.patch import validate_patch, validate_patch_bytes
-from task_bundle.validation.result import load_normalized_result
+from task_bundle.validation.result import parse_normalized_result
 
 _KEEPER_SCRIPT = "trap 'exit 0' TERM INT; while :; do sleep 3600; done"
 _SEED_SCRIPT = (
     "set -eu; "
-    "mkdir -p /workspace/repo /evaluation/input /evaluation/harness /evaluation/output; "
+    "mkdir -p /workspace/repo /evaluation/input /evaluation/harness; "
     "cp -a /opt/task/repo/. /workspace/repo/; "
     "test -d /workspace/repo; "
     "git -C /workspace/repo init -q; "
@@ -37,16 +46,27 @@ _PERMISSION_SCRIPT = (
     "test -r /evaluation/input/test.patch; "
     "test ! -w /evaluation/input/plan.json; "
     "test ! -w /evaluation/input/test.patch; "
-    "chmod 0755 /workspace /workspace/repo /evaluation/output"
+    "chmod 0755 /workspace /workspace/repo /evaluation; "
+    "chmod 0555 /evaluation/input /evaluation/harness"
 )
 _RUNTIME_PERMISSION_SCRIPT = (
     "set -eu; "
     "rm -rf /workspace/repo/.git; "
     "find /workspace -type d -exec chmod 0777 {} +; "
-    "find /workspace -type f -exec chmod a+rw {} +; "
-    "chmod 0777 /evaluation/output"
+    "find /workspace -type f -exec chmod a+rw {} +"
 )
 _CONTAINER_ID_LENGTHS = range(12, 65)
+_MAX_EXECUTION_PLAN_BYTES = 1_048_576
+
+
+@dataclass(frozen=True, slots=True)
+class CapturedEvaluationEvidence:
+    captured_executions: CapturedTestExecutions
+    patch_log: str
+    prepare_stdout: str
+    prepare_stderr: str
+    runner_stdout: str
+    runner_stderr: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,6 +78,7 @@ class EvaluationRequest:
     plan: EvaluationPlan
     keep_container: bool = False
     candidate_patch: bytes | None = None
+    evidence_sink: Callable[[CapturedEvaluationEvidence], None] | None = None
 
 
 class EvaluationBackend(Protocol):
@@ -77,6 +98,8 @@ class DockerEvaluator:
         evaluation = f"{base}-evaluation"
         container_name = base
         container_id: str | None = None
+        parser_container_id: str | None = None
+        created_containers: list[str] = []
         created_volumes: list[str] = []
         primary_error: BaseException | None = None
         started = time.monotonic()
@@ -146,11 +169,19 @@ class DockerEvaluator:
                 ErrorCode.EVALUATOR_CREATE_ERROR,
                 "create evaluator container",
             )
+            created_containers.append(container_name)
             candidate = created.stdout.strip().splitlines()[-1]
             if (
                 len(candidate) not in _CONTAINER_ID_LENGTHS
                 or any(character not in "0123456789abcdef" for character in candidate)
             ):
+                self._run(
+                    ("rm", "--force", container_name),
+                    request,
+                    ErrorCode.VALIDATION_CLEANUP_ERROR,
+                    "remove malformed evaluator container",
+                    check=False,
+                )
                 self._error(
                     ErrorCode.EVALUATOR_CREATE_ERROR,
                     "Docker returned an invalid evaluator container ID.",
@@ -175,10 +206,8 @@ class DockerEvaluator:
                 staging = Path(temporary)
                 input_root = staging / "input"
                 harness_root = staging / "harness"
-                output_root = staging / "output"
                 input_root.mkdir()
                 harness_root.mkdir()
-                output_root.mkdir()
                 self._stage(
                     request,
                     input_root,
@@ -235,6 +264,7 @@ class DockerEvaluator:
                     ErrorCode.EVALUATOR_PERMISSION_ERROR,
                     "make evaluator workspace writable by the runtime user",
                 )
+                execution_plan = self._build_execution_plan(request, container_id)
                 prepare = request.bundle.task.evaluation.prepare
                 if prepare is not None:
                     prepared = self._exec_user(
@@ -247,33 +277,69 @@ class DockerEvaluator:
                     )
                     prepare_stdout = prepared.stdout
                     prepare_stderr = prepared.stderr
-                executed = self._exec_user(
+                    self._terminate_candidate_processes(
+                        request,
+                        container_id,
+                        restart=True,
+                    )
+                captured: list[CapturedTestExecution] = []
+                for index, execution in enumerate(execution_plan.executions):
+                    captured.append(
+                        self._execute_test(
+                            request,
+                            container_id,
+                            execution,
+                            restart=index < len(execution_plan.executions) - 1,
+                        )
+                    )
+                captured_set = CapturedTestExecutions(executions=captured)
+                self._validate_captured_executions(
                     request,
+                    execution_plan,
+                    captured_set,
+                )
+                runner_stdout = "\n".join(item.stdout for item in captured)
+                runner_stderr = "\n".join(item.stderr for item in captured)
+                exit_codes = [
+                    item.exit_code for item in captured if item.exit_code is not None
+                ]
+                runner_exit_code = max(exit_codes, default=0)
+                evidence = CapturedEvaluationEvidence(
+                    captured_executions=captured_set,
+                    patch_log=patch_log,
+                    prepare_stdout=prepare_stdout,
+                    prepare_stderr=prepare_stderr,
+                    runner_stdout=runner_stdout,
+                    runner_stderr=runner_stderr,
+                )
+                if request.evidence_sink is not None:
+                    request.evidence_sink(evidence)
+                trusted_root = staging / "trusted"
+                trusted_root.mkdir(mode=0o755)
+                captured_path = trusted_root / "executions.json"
+                _write_staged(
+                    captured_path,
+                    captured_set.model_dump_json(indent=2).encode() + b"\n",
+                    0o444,
+                )
+                self._copy_into(
                     container_id,
-                    tuple(request.bundle.task.evaluation.runner.command),
-                    ErrorCode.TEST_RUNNER_ERROR,
-                    ErrorCode.TEST_RUNNER_TIMEOUT,
-                    "run task test harness",
-                    check=False,
-                )
-                runner_stdout = executed.stdout
-                runner_stderr = executed.stderr
-                runner_exit_code = executed.exit_code
-                self._run(
-                    ("cp", f"{container_id}:/evaluation/output/.", str(output_root)),
-                    request,
-                    ErrorCode.EVALUATOR_STAGE_ERROR,
-                    "copy evaluator output",
-                )
-                result_path = _host_result_path(
-                    output_root,
-                    request.bundle.task.evaluation.runner.result_file,
+                    trusted_root,
+                    "/evaluation/trusted",
                     request,
                 )
-                raw_result, normalized = load_normalized_result(
-                    result_path,
+                parser_container_id = self._create_trusted_parser(
+                    request,
+                    evaluation=evaluation,
+                    container_name=f"{base}-parser",
+                    created_containers=created_containers,
+                )
+                parsed = self._run_trusted_parser(request, parser_container_id)
+                raw_result, normalized = parse_normalized_result(
+                    parsed,
                     phase=phase,
                     repeat_index=repeat,
+                    source=Path("trusted-parser-stdout"),
                 )
         except TaskBundleError as error:
             primary_error = error
@@ -282,6 +348,7 @@ class DockerEvaluator:
                 details.update(
                     {
                         "retained_container_id": container_id,
+                        "retained_parser_container_id": parser_container_id,
                         "retained_workspace_id": workspace,
                         "retained_evaluation_storage_id": evaluation,
                         "retained_resources_contain_hidden_inputs": True,
@@ -300,7 +367,7 @@ class DockerEvaluator:
             if not request.keep_container:
                 cleaned_up = self._cleanup(
                     request,
-                    container_id,
+                    tuple(reversed(created_containers)),
                     tuple(created_volumes),
                     primary_error,
                 )
@@ -325,6 +392,7 @@ class DockerEvaluator:
             runner_stdout=runner_stdout,
             runner_stderr=runner_stderr,
             patch_log=patch_log,
+            captured_executions=captured_set,
             raw_result=raw_result,
             result=normalized,
             cleaned_up=cleaned_up,
@@ -414,6 +482,340 @@ class DockerEvaluator:
             relative = entry.path.removeprefix("evaluation/")
             destination = harness_root / Path(relative)
             _copy_manifest_file(request.bundle.root, entry, destination, request)
+
+    def _build_execution_plan(
+        self,
+        request: EvaluationRequest,
+        container_id: str,
+    ) -> TestExecutionPlan:
+        command = tuple(request.bundle.task.evaluation.runner.build_plan)
+        result = self._exec_root(
+            request,
+            container_id,
+            command,
+            ErrorCode.TEST_PARSE_ERROR,
+            "build trusted test execution plan",
+        )
+        payload = result.stdout.encode()
+        if len(payload) > _MAX_EXECUTION_PLAN_BYTES:
+            self._error(
+                ErrorCode.TEST_RESULT_TOO_LARGE,
+                "Trusted execution plan exceeds its size limit.",
+                f"{len(payload)} bytes",
+                request,
+            )
+        try:
+            raw_plan = json.loads(payload)
+        except (json.JSONDecodeError, UnicodeDecodeError) as error:
+            self._error(
+                ErrorCode.TEST_RESULT_SCHEMA_ERROR,
+                "Trusted execution plan is malformed.",
+                str(error),
+                request,
+            )
+        if (
+            isinstance(raw_plan, dict)
+            and raw_plan.get("schema_version") != "2"
+        ):
+            self._error(
+                ErrorCode.ADAPTER_CONTRACT_UNSUPPORTED,
+                "Task adapter execution-plan contract is unsupported.",
+                f"schema_version={raw_plan.get('schema_version')!r}; "
+                "migrate the adapter to schema version 2 with execution IDs "
+                "and requested_selectors arrays",
+                request,
+            )
+        try:
+            plan = TestExecutionPlan.model_validate_json(payload)
+        except ValidationError as error:
+            self._error(
+                ErrorCode.TEST_RESULT_SCHEMA_ERROR,
+                "Trusted execution plan is malformed.",
+                f"{error.error_count()} validation error(s)",
+                request,
+            )
+        expected = [
+            *(item.selector for item in request.plan.pass_to_pass),
+            *(item.selector for item in request.plan.fail_to_pass),
+        ]
+        observed = [
+            selector
+            for item in plan.executions
+            for selector in item.requested_selectors
+        ]
+        if set(observed) != set(expected) or len(observed) != len(expected):
+            self._error(
+                ErrorCode.TEST_RESULT_INCOMPLETE,
+                "Trusted execution plan does not map every selector exactly once.",
+                f"expected selectors {expected!r}, observed selectors {observed!r}",
+                request,
+            )
+        if any(
+            item.timeout_seconds > request.plan.timeout_seconds
+            for item in plan.executions
+        ):
+            self._error(
+                ErrorCode.TEST_RESULT_SCHEMA_ERROR,
+                "Trusted execution plan exceeds the evaluation timeout.",
+                f"maximum allowed: {request.plan.timeout_seconds}",
+                request,
+            )
+        return plan
+
+    def _validate_captured_executions(
+        self,
+        request: EvaluationRequest,
+        plan: TestExecutionPlan,
+        captured: CapturedTestExecutions,
+    ) -> None:
+        expected = {item.execution_id: item for item in plan.executions}
+        observed = {item.execution_id: item for item in captured.executions}
+        if expected.keys() != observed.keys():
+            self._error(
+                ErrorCode.TEST_RESULT_INCOMPLETE,
+                "Captured execution records do not match the trusted plan.",
+                (
+                    f"expected execution IDs {sorted(expected)!r}, "
+                    f"observed execution IDs {sorted(observed)!r}"
+                ),
+                request,
+            )
+        for execution_id, planned in expected.items():
+            actual = observed[execution_id]
+            if (
+                actual.requested_selectors != planned.requested_selectors
+                or actual.argv != planned.argv
+            ):
+                self._error(
+                    ErrorCode.TEST_RESULT_SCHEMA_ERROR,
+                    "Captured execution record differs from the trusted plan.",
+                    f"execution_id={execution_id!r}",
+                    request,
+                )
+
+    def _execute_test(
+        self,
+        request: EvaluationRequest,
+        container_id: str,
+        execution: TestExecution,
+        *,
+        restart: bool,
+    ) -> CapturedTestExecution:
+        started_at = datetime.now(UTC)
+        started = time.monotonic()
+        exit_code: int | None = None
+        stdout = ""
+        stderr = ""
+        stdout_truncated = False
+        stderr_truncated = False
+        timed_out = False
+        try:
+            result = self._exec_user(
+                request,
+                container_id,
+                tuple(execution.argv),
+                ErrorCode.TEST_RUNNER_ERROR,
+                ErrorCode.TEST_RUNNER_TIMEOUT,
+                f"run execution {execution.execution_id}",
+                check=False,
+                timeout_seconds=execution.timeout_seconds,
+            )
+            exit_code = result.exit_code
+            stdout = result.stdout
+            stderr = result.stderr
+            stdout_truncated = (
+                result.stdout_truncated
+                or result.output_truncated
+            )
+            stderr_truncated = (
+                result.stderr_truncated
+                or result.output_truncated
+            )
+        except TaskBundleError as error:
+            if error.code != ErrorCode.TEST_RUNNER_TIMEOUT:
+                self._terminate_candidate_processes(
+                    request,
+                    container_id,
+                    restart=False,
+                )
+                raise
+            timed_out = True
+            details = error.context.details or {}
+            stdout = str(details.get("stdout", ""))
+            stderr = str(details.get("stderr", ""))
+            combined_truncated = bool(details.get("output_truncated", False))
+            stdout_truncated = bool(
+                details.get("stdout_truncated", combined_truncated)
+            )
+            stderr_truncated = bool(
+                details.get("stderr_truncated", combined_truncated)
+            )
+        self._terminate_candidate_processes(
+            request,
+            container_id,
+            restart=restart,
+        )
+        return CapturedTestExecution(
+            execution_id=execution.execution_id,
+            requested_selectors=execution.requested_selectors,
+            argv=execution.argv,
+            started_at=started_at,
+            finished_at=datetime.now(UTC),
+            duration_ms=max(0, int((time.monotonic() - started) * 1000)),
+            exit_code=exit_code,
+            timed_out=timed_out,
+            stdout=stdout,
+            stderr=stderr,
+            stdout_truncated=stdout_truncated,
+            stderr_truncated=stderr_truncated,
+            candidate_processes_terminated=True,
+        )
+
+    def _terminate_candidate_processes(
+        self,
+        request: EvaluationRequest,
+        container_id: str,
+        *,
+        restart: bool,
+    ) -> None:
+        self._run(
+            ("stop", "--time", "1", container_id),
+            request,
+            ErrorCode.VALIDATION_CLEANUP_ERROR,
+            "terminate candidate evaluator processes",
+        )
+        inspected = self._run(
+            (
+                "inspect",
+                "--format",
+                "{{.State.Running}} {{.State.Pid}} "
+                "{{.HostConfig.RestartPolicy.Name}}",
+                container_id,
+            ),
+            request,
+            ErrorCode.VALIDATION_CLEANUP_ERROR,
+            "verify candidate evaluator processes terminated",
+        )
+        if inspected.stdout.strip() != "false 0 no":
+            self._error(
+                ErrorCode.VALIDATION_CLEANUP_ERROR,
+                "Candidate evaluator still has running processes.",
+                inspected.stdout.strip(),
+                request,
+            )
+        if restart:
+            self._run(
+                ("start", container_id),
+                request,
+                ErrorCode.EVALUATOR_CREATE_ERROR,
+                "restart clean evaluator container",
+            )
+
+    def _create_trusted_parser(
+        self,
+        request: EvaluationRequest,
+        *,
+        evaluation: str,
+        container_name: str,
+        created_containers: list[str],
+    ) -> str:
+        command = tuple(request.bundle.task.evaluation.runner.parse_result)
+        created = self._run(
+            self._parser_create_args(
+                request,
+                evaluation=evaluation,
+                container_name=container_name,
+                command=command,
+            ),
+            request,
+            ErrorCode.TEST_PARSE_ERROR,
+            "create trusted parser container",
+        )
+        created_containers.append(container_name)
+        container_id = created.stdout.strip().splitlines()[-1]
+        if (
+            len(container_id) not in _CONTAINER_ID_LENGTHS
+            or any(character not in "0123456789abcdef" for character in container_id)
+        ):
+            self._run(
+                ("rm", "--force", container_name),
+                request,
+                ErrorCode.VALIDATION_CLEANUP_ERROR,
+                "remove malformed trusted parser container",
+                check=False,
+            )
+            self._error(
+                ErrorCode.TEST_PARSE_ERROR,
+                "Docker returned an invalid trusted parser container ID.",
+                container_id[:200],
+                request,
+            )
+        return container_id
+
+    def _run_trusted_parser(
+        self,
+        request: EvaluationRequest,
+        container_id: str,
+    ) -> bytes:
+        parsed = self._run(
+            ("start", "--attach", container_id),
+            request,
+            ErrorCode.TEST_PARSE_ERROR,
+            "run trusted result parser",
+            check=False,
+        )
+        if parsed.exit_code != 0:
+            self._error(
+                ErrorCode.TEST_PARSE_ERROR,
+                "Trusted result parser exited unsuccessfully.",
+                parsed.stderr.strip() or f"exit {parsed.exit_code}",
+                request,
+            )
+        return parsed.stdout.encode()
+
+    def _parser_create_args(
+        self,
+        request: EvaluationRequest,
+        *,
+        evaluation: str,
+        container_name: str,
+        command: tuple[str, ...],
+    ) -> tuple[str, ...]:
+        args = [
+            "create",
+            "--name",
+            container_name,
+            "--label",
+            f"io.task-bundle.task-id={request.bundle.task.task.id}",
+            "--label",
+            f"io.task-bundle.command-id={request.command_id}",
+            "--label",
+            "io.task-bundle.role=trusted-parser",
+            "--network",
+            "none",
+            "--user",
+            "65532:65532",
+            "--read-only",
+            "--cap-drop",
+            "ALL",
+            "--security-opt",
+            "no-new-privileges",
+            "--mount",
+            f"type=volume,source={evaluation},target=/evaluation,readonly",
+            "--tmpfs",
+            "/tmp:size=512m,exec",
+            "--env",
+            "HOME=/tmp",
+            "--env",
+            "GOCACHE=/tmp/go-cache",
+            "--workdir",
+            "/evaluation",
+            "--entrypoint",
+            command[0],
+            request.lock.image_id,
+            *command[1:],
+        ]
+        return tuple(args)
 
     def _copy_into(
         self,
@@ -532,6 +934,7 @@ class DockerEvaluator:
         description: str,
         *,
         check: bool = True,
+        timeout_seconds: int | None = None,
     ) -> DockerCommandResult:
         return self._run(
             (
@@ -548,6 +951,7 @@ class DockerEvaluator:
             description,
             check=check,
             timeout_code=timeout_code,
+            timeout_seconds=timeout_seconds,
         )
 
     def _run(
@@ -559,11 +963,12 @@ class DockerEvaluator:
         *,
         check: bool = True,
         timeout_code: ErrorCode | None = None,
+        timeout_seconds: int | None = None,
     ) -> DockerCommandResult:
         return self.runner.run(
             args,
             cwd=request.bundle.root,
-            timeout_seconds=request.runtime_policy.timeout_seconds,
+            timeout_seconds=timeout_seconds or request.runtime_policy.timeout_seconds,
             error_code=code,
             timeout_code=timeout_code,
             phase=request.plan.phase.value,
@@ -574,12 +979,12 @@ class DockerEvaluator:
     def _cleanup(
         self,
         request: EvaluationRequest,
-        container_id: str | None,
+        containers: tuple[str, ...],
         volumes: tuple[str, ...],
         primary_error: BaseException | None,
     ) -> bool:
         failures: list[str] = []
-        if container_id is not None:
+        for container_id in containers:
             removed = self._run(
                 ("rm", "--force", container_id),
                 request,
@@ -626,57 +1031,6 @@ class DockerEvaluator:
                 details={"repeat_index": request.plan.repeat_index},
             ),
         )
-
-
-def _host_result_path(
-    output_root: Path,
-    configured: str,
-    request: EvaluationRequest,
-) -> Path:
-    logical = PurePosixPath(configured)
-    output = PurePosixPath("/evaluation/output")
-    try:
-        relative = logical.relative_to(output)
-    except ValueError:
-        DockerEvaluator._error(
-            ErrorCode.TEST_RESULT_SCHEMA_ERROR,
-            "Configured result file is outside evaluator output.",
-            configured,
-            request,
-        )
-    if (
-        not logical.is_absolute()
-        or ".." in logical.parts
-        or logical.as_posix() != configured
-        or relative.as_posix() in {"", "."}
-    ):
-        DockerEvaluator._error(
-            ErrorCode.TEST_RESULT_SCHEMA_ERROR,
-            "Configured result file path is unsafe.",
-            configured,
-            request,
-        )
-    result_path = output_root / Path(relative.as_posix())
-    try:
-        root_metadata = output_root.lstat()
-        if not stat.S_ISDIR(root_metadata.st_mode):
-            raise OSError("exported evaluation output root is not a directory")
-        current = output_root
-        for component in relative.parts[:-1]:
-            current /= component
-            metadata = current.lstat()
-            if not stat.S_ISDIR(metadata.st_mode):
-                raise OSError(f"unsafe result path component: {component}")
-    except FileNotFoundError:
-        return result_path
-    except OSError as error:
-        DockerEvaluator._error(
-            ErrorCode.TEST_RESULT_SCHEMA_ERROR,
-            "Configured result file has an unsafe exported path component.",
-            str(error),
-            request,
-        )
-    return result_path
 
 
 def _copy_manifest_file(

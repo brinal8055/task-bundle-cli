@@ -20,6 +20,8 @@ class DockerCommandResult:
     exit_code: int
     duration_ms: int
     output_truncated: bool
+    stdout_truncated: bool = False
+    stderr_truncated: bool = False
 
 
 class DockerRunner(Protocol):
@@ -152,6 +154,8 @@ class SystemDockerRunner:
             exit_code=result.exit_code,
             duration_ms=result.duration_ms,
             output_truncated=result.output_truncated,
+            stdout_truncated=result.stdout_truncated,
+            stderr_truncated=result.stderr_truncated,
         )
         self.last_result = result
         if result.exit_code != 0:
@@ -291,6 +295,8 @@ def _execute(
                         "stdout": stdout,
                         "stderr": stderr,
                         "output_truncated": stdout_truncated or stderr_truncated,
+                        "stdout_truncated": stdout_truncated,
+                        "stderr_truncated": stderr_truncated,
                     },
                 ),
             ) from error
@@ -302,6 +308,8 @@ def _execute(
         exit_code=exit_code,
         duration_ms=max(0, int((time.monotonic() - started) * 1000)),
         output_truncated=stdout_truncated or stderr_truncated,
+        stdout_truncated=stdout_truncated,
+        stderr_truncated=stderr_truncated,
     )
 
 

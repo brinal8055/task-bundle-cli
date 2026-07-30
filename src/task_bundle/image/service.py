@@ -45,6 +45,7 @@ from task_bundle.image.runtime import (
     create_smoke_plan,
     smoke_check,
 )
+from task_bundle.image.source import verify_image_source
 from task_bundle.image.validation import (
     task_image_reference,
     validate_base_image_reference,
@@ -355,6 +356,28 @@ class InitService:
                             "build/image-inspect.json",
                             inspection,
                             "image-inspection",
+                        )
+                        image_source = verify_image_source(
+                            runner,
+                            image_id=inspection.image_id,
+                            expected_manifest=source.manifest,
+                            expected_tree_sha=source.resolved.tree_sha,
+                            expected_source_digest=source.resolved.source_tree_digest,
+                            command_id=command_id,
+                            cwd=bundle.root,
+                        )
+                        self.store.event(
+                            command_id,
+                            "IMAGE_SOURCE_VERIFIED",
+                            {
+                                "source_tree_digest": image_source.manifest.digest,
+                                "tree_sha": image_source.tree_sha,
+                            },
+                        )
+                        writer.write_model(
+                            "build/image-source.manifest.json",
+                            image_source.manifest,
+                            "image-source-manifest",
                         )
                         smoke_plan = create_smoke_plan(
                             inspection=inspection,

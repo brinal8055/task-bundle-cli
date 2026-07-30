@@ -5,6 +5,7 @@ from typing import Literal
 from pydantic import Field, field_validator
 
 from task_bundle.models import (
+    CapturedTestExecutions,
     EvaluationPhase,
     HarnessStatus,
     NormalizedResult,
@@ -83,6 +84,7 @@ class EvaluatorExecution(StrictModel):
     runner_stdout: str = ""
     runner_stderr: str = ""
     patch_log: str = ""
+    captured_executions: CapturedTestExecutions
     raw_result: bytes
     result: NormalizedResult
     cleaned_up: bool

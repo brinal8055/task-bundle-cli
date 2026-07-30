@@ -25,7 +25,8 @@ bundle + public Git commit
   -> raw baseline/candidate Git trees
   -> regenerated binary patch + exact round-trip
   -> patch/hidden-path policy
-  -> fresh candidate evaluator
+  -> fresh candidate evaluator + host-captured execution records
+  -> proven candidate shutdown + separate trusted parser
   -> normalized selector classification
   -> SQLite events + immutable command artifacts
 ```
@@ -70,6 +71,19 @@ ambient Git configuration. The locked baseline tree must reconstruct exactly.
 The generated `--binary` patch must rebuild the entire candidate manifest:
 path, type, bytes, executable mode, symlink target, additions, and removals.
 
+Image construction independently exports `/opt/task/repo` from the immutable
+image ID and reconstructs the same complete manifest and raw Git tree before
+the lock is written. Content, add/delete, executable-mode, file/symlink, target,
+special-entry, `.git`, and case-collision differences fail. Declared Docker
+volumes at, above, or below `/opt/task/repo` are rejected during inspection so
+they cannot shadow verified image bytes.
+
+Evaluation adapters use explicit contract version `2`. A strict task-owned plan
+may run all selectors together, in groups, or individually. Docker captures
+each execution record, stops the candidate container, verifies no PID remains
+and restart policy is `no`, then stages the records read-only for a separate
+non-root parser. Candidate-created final result files are never accepted.
+
 ## Failure and persistence semantics
 
 Configuration failures exit `2`, infrastructure failures `3`, validation
@@ -104,6 +118,10 @@ order cannot make a safe large repository fail strict ordering.
 
 OpenLibrary remains the deliberate no-submodule boundary case. It is not
 substituted with official-image source or represented as a successful CLI run.
+
+Candidate code within a test process may still interfere with that process.
+The result boundary prevents direct accepted-file spoofing and post-exit races;
+it does not provide cryptographic in-process result integrity.
 
 ## Non-goals
 

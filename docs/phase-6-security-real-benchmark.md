@@ -29,13 +29,23 @@ preserved. Its exact Ansible tree has zero Gitlinks. The digest-pinned official
 image supplies commit-compatible dependencies, while task-owned preparation
 and parsing ensure pytest imports candidate code from `/workspace/repo/lib`.
 
-The final clean-wheel lifecycle completed with init command `cmd_ead91f…7422`,
-validation `cmd_95994a…e125`, unresolved no-op `cmd_5a1105…3325`, and resolved
-patch candidate `cmd_846788…6be4`. Baseline P2P passed/F2P failed; golden and resolved
+The final clean-wheel lifecycle completed with init command `cmd_d326a7…b691`,
+validation `cmd_ce2d13…4dd0`, unresolved no-op `cmd_1428ff…86d9`, and resolved
+patch candidate `cmd_a0931c…98d7`. Baseline P2P passed/F2P failed; golden and resolved
 candidate P2P/F2P both passed. The patch solver exported the complete non-root
 workspace, reconstructed raw trees, regenerated a binary patch, verified exact
 round-trip and policy, finalized the candidate, and only then created its
 evaluator.
+
+The remediation also replaces candidate-writable final results with adapter
+contract version `2`: task-owned structured execution units run as the
+candidate UID, Docker captures their streams and exit state, the candidate
+container is stopped with `Running=false`, `Pid=0`, and restart policy `no`,
+and only then does a separate non-root trusted parser emit normalized results.
+Truncation and missing, duplicate, unexpected, or ambiguous pytest testcase
+events fail closed. Candidate code executing inside pytest can still interfere
+with that process; this is direct result-file and race integrity, not a
+cryptographic test oracle.
 
 That full 5,084-entry export exposed one generic ordering defect: depth-first
 filesystem traversal was locally sorted but not globally lexicographic.

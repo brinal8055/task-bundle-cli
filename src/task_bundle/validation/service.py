@@ -29,6 +29,7 @@ from task_bundle.image.runtime import create_runtime_policy
 from task_bundle.image.validation import task_image_reference, validate_platform
 from task_bundle.models import CommandStatus, EvaluationPhase, EvaluationPlan
 from task_bundle.validation.docker import (
+    CapturedEvaluationEvidence,
     DockerEvaluator,
     EvaluationBackend,
     EvaluationRequest,
@@ -390,6 +391,16 @@ class ValidationService:
                 },
                 "evaluation-task-metadata",
             )
+            evidence_persisted = False
+
+            def persist_evidence(
+                evidence: CapturedEvaluationEvidence,
+                artifact_prefix: str = prefix,
+            ) -> None:
+                nonlocal evidence_persisted
+                write_captured_execution_artifacts(writer, artifact_prefix, evidence)
+                evidence_persisted = True
+
             execution = backend.run(
                 EvaluationRequest(
                     bundle=bundle,
@@ -398,13 +409,20 @@ class ValidationService:
                     command_id=command_id,
                     plan=plan,
                     keep_container=keep_containers,
+                    evidence_sink=persist_evidence,
                 )
             )
             selectors = classify_result(execution.result, plan)
             record = evaluation_record(execution, selectors)
             phase_records.append(record)
             records.append(record)
-            write_execution_artifacts(writer, prefix, execution, selectors)
+            write_execution_artifacts(
+                writer,
+                prefix,
+                execution,
+                selectors,
+                evidence_persisted=evidence_persisted,
+            )
         summary = phase_summary(phase, phase_records)
         writer.write_model(
             f"{phase.value}/summary.json",
@@ -475,32 +493,22 @@ def write_execution_artifacts(
     prefix: str,
     execution: EvaluatorExecution,
     selectors: tuple[SelectorResult, ...],
+    *,
+    evidence_persisted: bool = False,
 ) -> None:
-    writer.write_text(
-        f"{prefix}/patch-apply.log",
-        execution.patch_log,
-        "patch-apply-log",
-    )
-    writer.write_text(
-        f"{prefix}/prepare.stdout.log",
-        execution.prepare_stdout,
-        "prepare-stdout",
-    )
-    writer.write_text(
-        f"{prefix}/prepare.stderr.log",
-        execution.prepare_stderr,
-        "prepare-stderr",
-    )
-    writer.write_text(
-        f"{prefix}/runner.stdout.log",
-        execution.runner_stdout,
-        "runner-stdout",
-    )
-    writer.write_text(
-        f"{prefix}/runner.stderr.log",
-        execution.runner_stderr,
-        "runner-stderr",
-    )
+    if not evidence_persisted:
+        write_captured_execution_artifacts(
+            writer,
+            prefix,
+            CapturedEvaluationEvidence(
+                captured_executions=execution.captured_executions,
+                patch_log=execution.patch_log,
+                prepare_stdout=execution.prepare_stdout,
+                prepare_stderr=execution.prepare_stderr,
+                runner_stdout=execution.runner_stdout,
+                runner_stderr=execution.runner_stderr,
+            ),
+        )
     writer.write_bytes(
         f"{prefix}/results.json",
         execution.raw_result,
@@ -510,6 +518,43 @@ def write_execution_artifacts(
         f"{prefix}/classification.json",
         [item.model_dump(mode="json") for item in selectors],
         "selector-classification",
+    )
+
+
+def write_captured_execution_artifacts(
+    writer: ArtifactWriter,
+    prefix: str,
+    evidence: CapturedEvaluationEvidence,
+) -> None:
+    writer.write_text(
+        f"{prefix}/patch-apply.log",
+        evidence.patch_log,
+        "patch-apply-log",
+    )
+    writer.write_text(
+        f"{prefix}/prepare.stdout.log",
+        evidence.prepare_stdout,
+        "prepare-stdout",
+    )
+    writer.write_text(
+        f"{prefix}/prepare.stderr.log",
+        evidence.prepare_stderr,
+        "prepare-stderr",
+    )
+    writer.write_text(
+        f"{prefix}/runner.stdout.log",
+        evidence.runner_stdout,
+        "runner-stdout",
+    )
+    writer.write_text(
+        f"{prefix}/runner.stderr.log",
+        evidence.runner_stderr,
+        "runner-stderr",
+    )
+    writer.write_model(
+        f"{prefix}/captured-executions.json",
+        evidence.captured_executions,
+        "captured-test-executions",
     )
 
 
@@ -659,6 +704,7 @@ def _artifact_paths(
                 f"{prefix}/prepare.stderr.log",
                 f"{prefix}/runner.stdout.log",
                 f"{prefix}/runner.stderr.log",
+                f"{prefix}/captured-executions.json",
                 f"{prefix}/results.json",
                 f"{prefix}/classification.json",
             )

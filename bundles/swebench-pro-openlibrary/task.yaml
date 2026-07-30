@@ -44,10 +44,15 @@ evaluation:
       - /evaluation/harness/prepare.sh
     network: false
   runner:
-    command:
+    build_plan:
       - python
-      - /evaluation/harness/run-tests.py
-    result_file: /evaluation/output/results.json
+      - /evaluation/harness/adapter.py
+      - build-plan
+    parse_result:
+      - python
+      - /evaluation/harness/adapter.py
+      - parse-result
+    adapter_contract_version: "2"
     result_schema_version: "1"
   pass_to_pass:
     - selector: openlibrary/plugins/worksearch/tests/test_worksearch.py::test_process_facet

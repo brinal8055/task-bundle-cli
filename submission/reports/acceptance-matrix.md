@@ -12,6 +12,10 @@
 | Isolation | non-root/cap-drop/no-new-privileges | PASS | command construction and real capability-safe fix |
 | Isolation | network none/no socket/resource limits | PASS | command assertions and real lifecycle |
 | Isolation | cleanup | PASS | no labeled example containers or volumes |
+| Integrity | candidate-writable final results | PASS | host capture, proven shutdown, pre-parser evidence persistence, separate non-root parser |
+| Integrity | complete image/source equality | PASS | full manifest/raw-tree and mutation matrix |
+| Integrity | Docker source-volume shadowing | PASS | parent/equal/child overlap rejected before container creation |
+| Compatibility | adapter contract v2 and grouped execution | PASS | strict plan/captured schemas and Ansible grouped pytest |
 | Reproducibility | bundle/source/build/image/runtime/patch identities | PASS | lock, validation, and run reports |
 | Reproducibility | solver-context digest | PASS | isolation run `b8d3…7e79` |
 | Observability | command IDs/SQLite/events/tests/logs/reports | PASS | `task show` service queries and artifacts |
@@ -22,10 +26,10 @@
 | Demonstration | OpenLibrary Task Bundle validate | BLOCKED | init prerequisite blocked |
 | Demonstration | OpenLibrary Task Bundle unresolved | BLOCKED | validation prerequisite blocked |
 | Demonstration | OpenLibrary Task Bundle resolved | BLOCKED | validation prerequisite blocked |
-| Demonstration | supported SWE-bench Pro init | PASS | `cmd_ead91f…7422` |
-| Demonstration | supported SWE-bench Pro validation | PASS | `cmd_95994a…e125` |
-| Demonstration | supported SWE-bench Pro no-op | PASS | `cmd_5a1105…3325`, expected exit 1 |
-| Demonstration | supported SWE-bench Pro golden candidate | PASS | `cmd_846788…6be4` |
+| Demonstration | supported SWE-bench Pro init | PASS | `cmd_d326a7…b691` |
+| Demonstration | supported SWE-bench Pro validation | PASS | `cmd_ce2d13…4dd0` |
+| Demonstration | supported SWE-bench Pro no-op | PASS | `cmd_1428ff…86d9`, expected exit 1 |
+| Demonstration | supported SWE-bench Pro golden candidate | PASS | `cmd_a0931c…98d7` |
 | Assignment | Demo on one SWE-bench Pro task | PASS | complete selected Ansible CLI lifecycle |
 | Packaging | lint/type/unit/build/clean wheel | PASS | final verification gates |
 | Handoff | private GitHub collaborators added | BLOCKED | manual owner action required |

@@ -55,6 +55,7 @@ from task_bundle.source.persistence import (
     load_source_snapshot,
 )
 from task_bundle.validation.docker import (
+    CapturedEvaluationEvidence,
     DockerEvaluator,
     EvaluationBackend,
     EvaluationRequest,
@@ -71,6 +72,7 @@ from task_bundle.validation.service import (
     create_validation_identity,
     evaluation_record,
     phase_summary,
+    write_captured_execution_artifacts,
     write_execution_artifacts,
 )
 
@@ -565,6 +567,13 @@ class RunService:
             timeout_seconds=runtime_policy.timeout_seconds,
         )
         writer.write_model(f"{prefix}/plan.json", plan, "evaluation-plan")
+        evidence_persisted = False
+
+        def persist_evidence(evidence: CapturedEvaluationEvidence) -> None:
+            nonlocal evidence_persisted
+            write_captured_execution_artifacts(writer, prefix, evidence)
+            evidence_persisted = True
+
         execution = backend.run(
             EvaluationRequest(
                 bundle=bundle,
@@ -574,11 +583,18 @@ class RunService:
                 plan=plan,
                 keep_container=keep_containers,
                 candidate_patch=candidate_patch,
+                evidence_sink=persist_evidence,
             )
         )
         selectors = classify_result(execution.result, plan)
         record = evaluation_record(execution, selectors)
-        write_execution_artifacts(writer, prefix, execution, selectors)
+        write_execution_artifacts(
+            writer,
+            prefix,
+            execution,
+            selectors,
+            evidence_persisted=evidence_persisted,
+        )
         summary = phase_summary(phase, [record])
         writer.write_model(f"{prefix}/summary.json", summary, "evaluation-phase-summary")
         return summary, record
@@ -871,6 +887,7 @@ def _run_artifact_paths(
         "baseline/prepare.stderr.log",
         "baseline/runner.stdout.log",
         "baseline/runner.stderr.log",
+        "baseline/captured-executions.json",
         "baseline/results.json",
         "baseline/classification.json",
         "baseline/summary.json",
@@ -889,6 +906,7 @@ def _run_artifact_paths(
         "candidate/prepare.stderr.log",
         "candidate/runner.stdout.log",
         "candidate/runner.stderr.log",
+        "candidate/captured-executions.json",
         "candidate/results.json",
         "candidate/classification.json",
         "candidate/summary.json",

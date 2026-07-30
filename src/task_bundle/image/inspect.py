@@ -1,6 +1,6 @@
 import json
 import re
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, NoReturn
 
 from task_bundle.errors import ErrorCode, ErrorContext, TaskBundleError
@@ -8,6 +8,7 @@ from task_bundle.image.docker import DockerRunner
 from task_bundle.image.models import ImageInspection
 
 _IMAGE_ID = re.compile(r"^sha256:[0-9a-f]{64}$")
+_PROTECTED_SOURCE_PATH = PurePosixPath("/opt/task/repo")
 
 
 def inspect_image(
@@ -26,6 +27,7 @@ def inspect_image(
         description=f"inspect task image {reference}",
     )
     inspection = _parse_inspection(reference, result.stdout)
+    _reject_source_volume_conflicts(inspection)
     if expected_platform is not None and inspection.platform != expected_platform:
         _inspection_error(
             ErrorCode.PLATFORM_MISMATCH,
@@ -78,7 +80,9 @@ def inspect_image_if_present(
     )
     if result.exit_code != 0:
         return None
-    return _parse_inspection(reference, result.stdout)
+    inspection = _parse_inspection(reference, result.stdout)
+    _reject_source_volume_conflicts(inspection)
+    return inspection
 
 
 def _parse_inspection(reference: str, output: str) -> ImageInspection:
@@ -123,6 +127,7 @@ def _parse_inspection(reference: str, output: str) -> ImageInspection:
         if isinstance(labels_raw, dict)
         else {}
     )
+    declared_volumes = _declared_volumes(config.get("Volumes"))
     size = raw.get("Size")
     if not isinstance(size, int) or size < 0:
         size = 0
@@ -140,6 +145,7 @@ def _parse_inspection(reference: str, output: str) -> ImageInspection:
         working_directory=(
             config.get("WorkingDir") if isinstance(config.get("WorkingDir"), str) else None
         ),
+        declared_volumes=declared_volumes,
         labels=labels,
         size_bytes=size,
     )
@@ -149,6 +155,89 @@ def _string_tuple(value: object) -> tuple[str, ...]:
     if not isinstance(value, list):
         return ()
     return tuple(sorted(item for item in value if isinstance(item, str)))
+
+
+def _declared_volumes(value: object) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, dict):
+        _volume_error(
+            "Docker Config.Volumes must be an object.",
+            details={"protected_path": _PROTECTED_SOURCE_PATH.as_posix()},
+        )
+    normalized: set[str] = set()
+    malformed: list[str] = []
+    for raw in value:
+        if not isinstance(raw, str):
+            malformed.append(type(raw).__name__)
+            continue
+        try:
+            normalized.add(_normalize_container_path(raw))
+        except ValueError:
+            malformed.append(raw)
+    if malformed:
+        _volume_error(
+            "Docker image declares malformed volume paths.",
+            details={
+                "malformed_volume_paths": sorted(malformed),
+                "protected_path": _PROTECTED_SOURCE_PATH.as_posix(),
+            },
+        )
+    return tuple(sorted(normalized))
+
+
+def _normalize_container_path(value: str) -> str:
+    if not value or "\0" in value or not value.startswith("/"):
+        raise ValueError("volume path must be absolute")
+    components = value.split("/")
+    if any(component in {".", ".."} for component in components):
+        raise ValueError("volume path contains unresolved components")
+    normalized_components = [component for component in components if component]
+    normalized = "/" + "/".join(normalized_components)
+    path = PurePosixPath(normalized)
+    if not path.is_absolute() or path.as_posix() != normalized:
+        raise ValueError("volume path is not normalized")
+    return normalized
+
+
+def _reject_source_volume_conflicts(inspection: ImageInspection) -> None:
+    protected_parts = _PROTECTED_SOURCE_PATH.parts
+    conflicts = [
+        volume
+        for volume in inspection.declared_volumes
+        if _paths_overlap(PurePosixPath(volume).parts, protected_parts)
+    ]
+    if conflicts:
+        _volume_error(
+            "Docker image volumes overlap the protected task source.",
+            details={
+                "conflicting_volume_paths": conflicts,
+                "protected_path": _PROTECTED_SOURCE_PATH.as_posix(),
+            },
+        )
+
+
+def _paths_overlap(left: tuple[str, ...], right: tuple[str, ...]) -> bool:
+    shared = min(len(left), len(right))
+    return left[:shared] == right[:shared]
+
+
+def _volume_error(message: str, *, details: dict[str, object]) -> NoReturn:
+    raise TaskBundleError(
+        ErrorCode.IMAGE_SOURCE_VOLUME_CONFLICT,
+        message,
+        ErrorContext(
+            phase="image-inspect",
+            expected=(
+                "No declared Docker volume at, above, or below /opt/task/repo"
+            ),
+            actual="The image volume declaration can shadow verified source bytes.",
+            corrective_action=(
+                "Remove or relocate the conflicting VOLUME declaration and rebuild."
+            ),
+            details=details,
+        ),
+    )
 
 
 def _invalid_field(name: str) -> NoReturn:

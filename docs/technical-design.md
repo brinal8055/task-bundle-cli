@@ -596,8 +596,7 @@ my-task/
 │   └── context/
 ├── evaluation/
 │   ├── prepare.sh
-│   ├── run-tests.sh
-│   ├── parse-results.py
+│   ├── adapter.py
 │   └── hidden/
 │       ├── test.patch
 │       └── golden.patch
@@ -737,13 +736,15 @@ evaluation:
     network: false
 
   runner:
-    command:
-      - "/evaluation/harness/run-tests.sh"
-      - "--plan"
-      - "/evaluation/input/plan.json"
-      - "--output"
-      - "/evaluation/output/results.json"
-    result_file: "/evaluation/output/results.json"
+    build_plan:
+      - "python"
+      - "/evaluation/harness/adapter.py"
+      - "build-plan"
+    parse_result:
+      - "python"
+      - "/evaluation/harness/adapter.py"
+      - "parse-result"
+    adapter_contract_version: "2"
     result_schema_version: "1"
 
   pass_to_pass:
@@ -1100,10 +1101,13 @@ Options:
 10. Generate wrapper Dockerfile when using a base image.
 11. Build task image.
 12. Inspect image metadata.
-13. Run smoke check.
-14. Write bundle lock.
-15. Persist logs and environment metadata.
-16. Clean temporary resources.
+13. Reject declared volumes overlapping `/opt/task/repo`.
+14. Export `/opt/task/repo` from a stopped immutable-image container.
+15. Verify the complete normalized source manifest and raw Git tree SHA.
+16. Run smoke check.
+17. Write bundle lock.
+18. Persist logs and environment metadata.
+19. Clean temporary resources.
 
 ## 19.3 Smoke check
 
@@ -1114,6 +1118,12 @@ The CLI verifies:
 * Configured runtime user exists.
 * Runtime working directory can be created.
 * Optional smoke command succeeds.
+
+The smoke probe is not the image-integrity boundary. Before smoke and lock
+creation, the host independently validates every exported source path, type,
+file digest/size/executable mode, and symlink target, then reconstructs the raw
+Git tree. Add/delete/content/mode/type/target changes, `.git`, special entries,
+unsafe paths, case collisions, and declared volume shadowing fail init.
 
 ## 19.4 Outcomes
 
@@ -1144,13 +1154,10 @@ Evaluator files are injected after container creation.
 
 /evaluation/harness/
 ├── prepare.sh
-├── run-tests.sh
-└── parse-results.py
+└── adapter.py
 
-/evaluation/output/
-├── results.json
-├── junit.xml
-└── logs/
+/evaluation/trusted/
+└── executions.json
 ```
 
 ## 20.2 Permissions
@@ -1166,10 +1173,11 @@ Evaluator files are injected after container creation.
   scripts: 0555
   files: 0444
 
-/evaluation/output
-  owner: evaluator user
-  directories: 0755
-  files: writable by evaluator user
+/evaluation/trusted
+  owner: trusted administrator
+  directories: 0555
+  files: 0444
+  staged only after candidate shutdown
 
 /workspace/repo
   owner: evaluator user
@@ -1183,17 +1191,21 @@ Evaluator files are injected after container creation.
 3. Copy trusted input files.
 4. Copy harness files.
 5. Set root ownership and read-only permissions.
-6. Create writable output directory.
-7. Seed baseline workspace.
-8. Apply code patch administratively.
-9. Apply hidden test patch administratively.
-10. Run trusted preparation.
-11. Drop to evaluator user.
-12. Execute tests.
-13. Copy results and logs out.
-14. Destroy container and volume.
+6. Seed baseline workspace.
+7. Apply code patch administratively.
+8. Apply hidden test patch administratively.
+9. Build strict adapter execution plan version `2`.
+10. Run preparation and structured execution units as the candidate UID.
+11. Capture process streams/status/timeouts through Docker.
+12. Stop the candidate container and prove `Running=false`, `Pid=0`, restart `no`.
+13. Persist validated captured records and completed execution logs as
+    command-owned host artifacts.
+14. Stage captured records read-only.
+15. Run a separate non-root trusted parser without the candidate workspace.
+16. Validate bounded normalized parser stdout.
+17. Destroy evaluator/parser containers and volumes.
 
-This makes normal harness or input modification substantially harder.
+Candidate-created structured result files are never accepted.
 
 ---
 
@@ -1397,6 +1409,44 @@ The runner may execute tests:
 
 The core does not dictate execution strategy.
 
+The task-owned runner first emits adapter execution-plan schema version `2`:
+
+```json
+{
+  "schema_version": "2",
+  "executions": [
+    {
+      "execution_id": "pytest-group-001",
+      "requested_selectors": [
+        "tests/test_api.py::test_existing",
+        "tests/test_api.py::test_missing"
+      ],
+      "argv": [
+        "pytest",
+        "-q",
+        "tests/test_api.py::test_existing",
+        "tests/test_api.py::test_missing"
+      ],
+      "timeout_seconds": 1200
+    }
+  ]
+}
+```
+
+Schema version `1` is rejected with `ADAPTER_CONTRACT_UNSUPPORTED`. Execution
+IDs are unique; selector lists and argv are non-empty; every requested selector
+appears exactly once across all units; unknown selectors, unknown fields, shell
+strings, duplicates, and excessive timeouts are rejected.
+
+Docker then produces strict captured-record schema version `1` containing the
+trusted execution ID/selectors/argv plus exit code, timeout, bounded stdout and
+stderr, separate truncation flags, timezone-aware timestamps, duration, and
+proven candidate termination. Captured records must correspond one-for-one
+with the plan. They are atomically persisted as
+`captured-executions.json` before being staged for the trusted parser. Parser
+failure retains those records and completed execution logs but cannot create a
+normalized result.
+
 ---
 
 # 24. Normalised result contract
@@ -1410,7 +1460,7 @@ The core does not dictate execution strategy.
   "execution_started": true,
   "command": [
     "pytest",
-    "--junitxml=/evaluation/output/junit.xml"
+    "<requested-selectors>"
   ],
   "started_at": "2026-07-28T12:00:00Z",
   "finished_at": "2026-07-28T12:00:03Z",
@@ -1438,7 +1488,8 @@ The core enforces:
 * No duplicate mappings.
 * No unresolved selectors.
 
-Additional unrequested tests may be recorded but do not automatically invalidate evaluation.
+Framework adapters must define auxiliary-test handling explicitly. The committed
+pytest adapters reject unexpected observed testcase IDs.
 
 ---
 
@@ -2374,21 +2425,21 @@ Required demonstrations:
 
 ## 41.4 Real SWE-bench Pro task
 
-Use the selected OpenLibrary instance.
+Use the supported Ansible instance. Its exact source tree has no Gitlinks.
 
 Demonstrate:
 
 ```bash
-task init bundles/swebench-pro-openlibrary
+task init bundles/swebench-pro-ansible-d9f186
 
-task validate bundles/swebench-pro-openlibrary
+task validate bundles/swebench-pro-ansible-d9f186
 
-task run bundles/swebench-pro-openlibrary \
+task run bundles/swebench-pro-ansible-d9f186 \
   --solver noop
 
-task run bundles/swebench-pro-openlibrary \
+task run bundles/swebench-pro-ansible-d9f186 \
   --solver patch \
-  --patch bundles/swebench-pro-openlibrary/evaluation/hidden/golden.patch
+  --patch /tmp/trusted-ansible-candidate.patch
 
 task show <command-id>
 ```
@@ -2400,6 +2451,10 @@ Expected:
 * No-op unresolved.
 * Golden candidate resolved.
 * Results persisted and queryable.
+
+The preserved OpenLibrary import is an unsupported-source boundary example.
+Its verified tree contains Gitlinks and `task init` must fail with
+`SOURCE_SUBMODULE_UNSUPPORTED`; validate/run are not expected to complete.
 
 ---
 
@@ -2421,7 +2476,9 @@ Verify:
 * Candidate evaluator is fresh.
 * Harness files are root-owned.
 * Evaluation input is read-only.
-* Output directory is writable only where intended.
+* Candidate cannot create or replace accepted normalized output.
+* Candidate shutdown is proven before non-root trusted parsing.
+* Truncated, missing, duplicate, or unexpected pytest events fail closed.
 * Containers are removed after success and failure.
 
 ---
@@ -2533,7 +2590,8 @@ All isolation claims are proven by tests.
 
 ## Phase 5 — Real benchmark
 
-* OpenLibrary bundle.
+* Supported Ansible bundle.
+* Preserved OpenLibrary gitlink rejection evidence.
 * Provenance.
 * Docker environment.
 * Evaluation runner.
@@ -2542,7 +2600,7 @@ All isolation claims are proven by tests.
 
 ### Gate
 
-Clean-machine workflow succeeds.
+Clean-machine Ansible workflow succeeds; OpenLibrary remains correctly blocked.
 
 ## Phase 6 — Submission polish
 

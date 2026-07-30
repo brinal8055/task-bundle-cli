@@ -8,10 +8,10 @@
 | Example patch | `cmd_c41188f54b734692b854d25991bcb0fb` | 0 | resolved | `artifacts/submission-hello-answer/cmd_c41188f54b734692b854d25991bcb0fb` |
 | Isolation command | `cmd_5f0428f258e6423284b5bc38eb6c80ce` | 0 | resolved | `artifacts/submission-hello-answer/cmd_5f0428f258e6423284b5bc38eb6c80ce` |
 | OpenLibrary init | executed with isolated state | 3 | `SOURCE_SUBMODULE_UNSUPPORTED` | temporary evidence only |
-| Selected real init | `cmd_ead91f81c1534e468029b0c977327422` | 0 | initialized | `artifacts/swebench-pro-ansible-d9f186/cmd_ead91f81c1534e468029b0c977327422` |
-| Selected real validate | `cmd_95994ac450a94272bf1d163c09ede125` | 0 | valid | `artifacts/swebench-pro-ansible-d9f186/cmd_95994ac450a94272bf1d163c09ede125` |
-| Selected real no-op | `cmd_5a11053ab6644e41a84da0befa433325` | 1 | unresolved | `artifacts/swebench-pro-ansible-d9f186/cmd_5a11053ab6644e41a84da0befa433325` |
-| Selected real patch | `cmd_8467886813444d9d8c5f2341027d6be4` | 0 | resolved | `artifacts/swebench-pro-ansible-d9f186/cmd_8467886813444d9d8c5f2341027d6be4` |
+| Selected real init | `cmd_d326a7f751fe4f30b908509ef66ab691` | 0 | initialized | `artifacts/swebench-pro-ansible-d9f186/cmd_d326a7f751fe4f30b908509ef66ab691` |
+| Selected real validate | `cmd_ce2d13ef592844bb8e3bb840165f4dd0` | 0 | valid | `artifacts/swebench-pro-ansible-d9f186/cmd_ce2d13ef592844bb8e3bb840165f4dd0` |
+| Selected real no-op | `cmd_1428ff1ef6a24430ad36e89b186586d9` | 1 | unresolved | `artifacts/swebench-pro-ansible-d9f186/cmd_1428ff1ef6a24430ad36e89b186586d9` |
+| Selected real patch | `cmd_a0931c336d024b668f2eb6f9477398d7` | 0 | resolved | `artifacts/swebench-pro-ansible-d9f186/cmd_a0931c336d024b668f2eb6f9477398d7` |
 
 The no-op candidate tree equals baseline and its candidate patch is the empty
 SHA-256 (`e3b0…b855`). The patch and command solvers independently generated

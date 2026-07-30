@@ -10,6 +10,8 @@ from task_bundle.errors import ErrorCode, ErrorContext, TaskBundleError
 from task_bundle.image.lock import LOCK_RELATIVE_PATH, load_bundle_lock
 from task_bundle.image.service import InitOptions, InitService
 from task_bundle.models import (
+    CapturedTestExecution,
+    CapturedTestExecutions,
     EvaluationPhase,
     HarnessStatus,
     NormalizedResult,
@@ -68,6 +70,7 @@ class FakeEvaluationBackend:
             exit_code=0,
             tests=tests,
         )
+        finished = started + timedelta(milliseconds=5)
         return EvaluatorExecution(
             phase=request.plan.phase,
             repeat_index=request.plan.repeat_index,
@@ -83,6 +86,27 @@ class FakeEvaluationBackend:
                 request.bundle.evaluation_inputs.golden_patch_sha256
                 if request.plan.phase == EvaluationPhase.GOLDEN
                 else None
+            ),
+            captured_executions=CapturedTestExecutions(
+                executions=[
+                    CapturedTestExecution(
+                        execution_id="fake-group",
+                        requested_selectors=[
+                            item.requested_selector for item in tests
+                        ],
+                        argv=["fake"],
+                        started_at=started,
+                        finished_at=finished,
+                        duration_ms=5,
+                        exit_code=0,
+                        timed_out=False,
+                        stdout="",
+                        stderr="",
+                        stdout_truncated=False,
+                        stderr_truncated=False,
+                        candidate_processes_terminated=True,
+                    )
+                ]
             ),
             raw_result=result.model_dump_json().encode(),
             result=result,
@@ -141,6 +165,9 @@ def test_valid_validation_uses_fresh_evaluators_and_persists_evidence(
     assert len({item.workspace_id for item in result.evaluations}) == 4
     assert all(item.cleaned_up for item in result.evaluations)
     artifact_root = bundle / result.artifact_directory
+    assert (
+        artifact_root / "baseline/repeat-001/captured-executions.json"
+    ).is_file()
     assert (artifact_root / "baseline/repeat-001/results.json").is_file()
     assert (artifact_root / "golden/repeat-002/classification.json").is_file()
     assert (artifact_root / "report.md").is_file()
